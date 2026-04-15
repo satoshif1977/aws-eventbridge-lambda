@@ -1,0 +1,27 @@
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.backup
+.terraform.lock.hcl
+*.tfplan
+terraform.tfvars
+
+# Lambda zip
+*.zip
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# 機密情報
+.env
+*.secret
+*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# draw.io バックアップ
+.*.bkp

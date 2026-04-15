@@ -1,0 +1,3 @@
+project    = "eventbridge-lambda"
+env        = "dev"
+aws_region = "ap-northeast-1"
