@@ -81,6 +81,22 @@ aws-eventbridge-lambda/
 
 ---
 
+## 動作確認スクリーンショット
+
+| # | 内容 |
+|---|---|
+| 1 | Lambda 関数一覧（scheduler・processor の 2 関数） |
+| 2 | EventBridge Scheduler 詳細（cron 設定画面） |
+| 3 | EventBridge Rules 詳細（S3 イベントパターン画面） |
+| 4 | S3 report バケット内 `reports/YYYY-MM-DD/daily-report.json`（Pattern A 確認） |
+| 5 | S3 input バケット（Pattern B アップロード後） |
+| 6 | CloudWatch Logs（Lambda 実行ログ） |
+| 7 | DynamoDB テーブル 項目探索（Pattern B 処理結果） |
+
+スクリーンショットは [`docs/`](./docs/) フォルダに格納。
+
+---
+
 ## デプロイ手順
 
 ### 1. Terraform apply
