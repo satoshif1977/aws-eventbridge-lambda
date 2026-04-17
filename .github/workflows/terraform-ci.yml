@@ -54,10 +54,17 @@ jobs:
           python-version: '3.11'
 
       - name: Install test deps
-        run: pip install pytest boto3 botocore
+        run: pip install pytest boto3 botocore pytest-cov
 
       - name: pytest scheduler
-        run: pytest lambda_src/scheduler/test_index.py -v
+        run: pytest lambda_src/scheduler/test_index.py -v --cov=lambda_src/scheduler --cov-report=xml:coverage-scheduler.xml
 
       - name: pytest processor
-        run: pytest lambda_src/processor/test_index.py -v
+        run: pytest lambda_src/processor/test_index.py -v --cov=lambda_src/processor --cov-report=xml:coverage-processor.xml --cov-append
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage-scheduler.xml,./coverage-processor.xml
+          flags: lambda
+          fail_ci_if_error: false
