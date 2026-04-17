@@ -1,4 +1,4 @@
-name: Terraform CI
+name: Terraform CI & Python Test
 
 on:
   push:
@@ -35,3 +35,29 @@ jobs:
 
       - name: Terraform Validate
         run: terraform validate
+
+  test:
+    name: Python ユニットテスト
+    runs-on: ubuntu-latest
+
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      AWS_DEFAULT_REGION: ap-northeast-1
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install test deps
+        run: pip install pytest boto3 botocore
+
+      - name: pytest scheduler
+        run: pytest lambda_src/scheduler/test_index.py -v
+
+      - name: pytest processor
+        run: pytest lambda_src/processor/test_index.py -v
