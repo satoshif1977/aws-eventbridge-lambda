@@ -63,8 +63,9 @@ jobs:
         run: pytest lambda_src/processor/test_index.py -v --cov=lambda_src/processor --cov-report=xml:coverage-processor.xml --cov-append
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
+          token: ${{ secrets.CODECOV_TOKEN }}
           files: ./coverage-scheduler.xml,./coverage-processor.xml
           flags: lambda
           fail_ci_if_error: false
