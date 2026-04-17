@@ -13,6 +13,12 @@ Amazon EventBridge + AWS Lambda による**スケジュール実行**と**S3 イ
 
 ---
 
+## デモ
+
+![Demo](docs/demo/demo.gif)
+
+---
+
 ## アーキテクチャ
 
 ### Pattern A: スケジュール実行（定期レポート生成）
