@@ -1,14 +1,17 @@
 variable "project" {
-  type    = string
-  default = "eventbridge-lambda"
+  description = "プロジェクト名（リソース命名プレフィックスに使用）"
+  type        = string
+  default     = "eventbridge-lambda"
 }
 
 variable "env" {
-  type    = string
-  default = "dev"
+  description = "環境名（dev / stg / prod）"
+  type        = string
+  default     = "dev"
 }
 
 variable "aws_region" {
-  type    = string
-  default = "ap-northeast-1"
+  description = "デプロイ先 AWS リージョン"
+  type        = string
+  default     = "ap-northeast-1"
 }
