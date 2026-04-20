@@ -39,6 +39,9 @@ resource "aws_s3_bucket_lifecycle_configuration" "report" {
     expiration {
       days = 90 # 90日後に自動削除
     }
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 7
+    }
   }
 }
 
@@ -80,6 +83,9 @@ resource "aws_s3_bucket_lifecycle_configuration" "input" {
     filter {}
     expiration {
       days = 30 # 30日後に自動削除
+    }
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 7
     }
   }
 }
