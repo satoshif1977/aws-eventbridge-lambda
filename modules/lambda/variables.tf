@@ -23,3 +23,9 @@ variable "policy_statements" {
   type    = list(any)
   default = []
 }
+
+variable "log_retention_days" {
+  description = "CloudWatch Logs の保持日数"
+  type        = number
+  default     = 30
+}
