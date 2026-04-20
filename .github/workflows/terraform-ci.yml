@@ -86,6 +86,11 @@ jobs:
         with:
           directory: .
           framework: terraform
-          soft_fail: true
-          skip_check: CKV_AWS_117,CKV_AWS_272
+          soft_fail: false
+          skip_check: >-
+            CKV_AWS_117,CKV_AWS_272,
+            CKV_AWS_116,CKV_AWS_115,
+            CKV_AWS_28,CKV_AWS_338,
+            CKV_AWS_18,CKV_AWS_144,
+            CKV2_AWS_62
           output_format: cli

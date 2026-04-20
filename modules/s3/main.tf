@@ -13,6 +13,23 @@ resource "aws_s3_bucket_versioning" "report" {
   }
 }
 
+resource "aws_s3_bucket_server_side_encryption_configuration" "report" {
+  bucket = aws_s3_bucket.report.id
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "report" {
+  bucket                  = aws_s3_bucket.report.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
 resource "aws_s3_bucket_lifecycle_configuration" "report" {
   bucket = aws_s3_bucket.report.id
   rule {
@@ -29,6 +46,42 @@ resource "aws_s3_bucket_lifecycle_configuration" "report" {
 resource "aws_s3_bucket" "input" {
   bucket = "${var.project}-${var.env}-input-${var.account_id}"
   tags   = var.tags
+}
+
+resource "aws_s3_bucket_versioning" "input" {
+  bucket = aws_s3_bucket.input.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "input" {
+  bucket = aws_s3_bucket.input.id
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "input" {
+  bucket                  = aws_s3_bucket.input.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "input" {
+  bucket = aws_s3_bucket.input.id
+  rule {
+    id     = "expire-old-inputs"
+    status = "Enabled"
+    filter {}
+    expiration {
+      days = 30 # 30日後に自動削除
+    }
+  }
 }
 
 # EventBridge への S3 イベント通知を有効化

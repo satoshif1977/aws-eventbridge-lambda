@@ -47,6 +47,12 @@ resource "aws_dynamodb_table" "processed_files" {
     enabled        = true
   }
 
+  point_in_time_recovery {
+    enabled = true
+  }
+
+  deletion_protection_enabled = true
+
   tags = local.tags
 }
 
