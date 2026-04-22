@@ -25,3 +25,9 @@ Thumbs.db
 
 # draw.io バックアップ
 .*.bkp
+
+# Lambda 動作確認用一時ファイル
+response.json
+delete.json
+versions.json
+test.txt
