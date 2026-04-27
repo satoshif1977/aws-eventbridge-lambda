@@ -1,7 +1,6 @@
 # aws-eventbridge-lambda
 
 ![CI](https://github.com/satoshif1977/aws-eventbridge-lambda/actions/workflows/terraform-ci.yml/badge.svg)
-[![codecov](https://codecov.io/gh/satoshif1977/aws-eventbridge-lambda/branch/master/graph/badge.svg)](https://codecov.io/gh/satoshif1977/aws-eventbridge-lambda)
 ![Terraform](https://img.shields.io/badge/Terraform-623CE4?style=flat&logo=terraform&logoColor=white)
 ![AWS](https://img.shields.io/badge/AWS-232F3E?style=flat&logo=amazon-aws&logoColor=white)
 ![Python](https://img.shields.io/badge/Python-3776AB?style=flat&logo=python&logoColor=white)
@@ -233,6 +232,23 @@ GitHub Actions で Terraform の静的解析（Checkov）を自動実行して�
 | **カスタム Skills** | Terraform / Python / AWS に特化した Skills を設定・継続的に更新。自分の技術スタックに最適化したワークフローを構築 |
 
 > AI を「使う」だけでなく、自分の業務・技術スタックに合わせて**設定・運用・改善し続ける**ことを意識しています。
+
+---
+
+## 学習で気づいたこと・躓いたポイント
+
+### EventBridge
+
+- **Scheduler と Rules の使い分け**: スケジュール実行は `EventBridge Scheduler`（`aws_scheduler_schedule`）、イベントパターンマッチは `EventBridge Rules`（`aws_cloudwatch_event_rule`）と別サービス。タイムゾーン設定の場所や Terraform リソース名が違うので混同しやすい。
+- **cron 式は UTC 基準**: EventBridge のスケジュールは UTC で指定する。JST（UTC+9）の 9:00 に実行したい場合は `cron(0 0 * * ? *)` と書く（9-9=0）。
+
+### S3 → EventBridge 通知
+
+- **`eventbridge = true` の設定が必要**: `aws_s3_bucket_notification` で `eventbridge = true` を指定するだけで S3 イベントが EventBridge に流れる。SNS/SQS を使う旧来の方法と混同しがちなので注意。一方で、この設定をしないとバケット操作がイベントとして発火しない。
+
+### Lambda
+
+- **Lambda モジュールの共通化で嵌った点**: 2 つの Lambda 関数を同一モジュールで管理する際、`policy_statements` 変数でポリシーを外部から注入する設計にしたが、変数の型定義（`list(object({...}))`）が厳密なため型の過不足でエラーが出た。最初から型を決めてから設計すると楽。
 
 ---
 
