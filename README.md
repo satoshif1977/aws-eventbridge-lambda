@@ -228,6 +228,56 @@ terraform destroy
 
 ---
 
+## トラブルシューティング
+
+| 症状 | 原因 | 対処法 |
+|---|---|---|
+| Pattern A のスケジュールが実行されない | cron 式が UTC 基準 | JST 9:00 = `cron(0 0 * * ? *)` (UTC 0:00)。式を確認 |
+| Pattern B の Lambda が起動しない | `eventbridge = true` が未設定 | `aws_s3_bucket_notification` の `eventbridge = true` を確認 |
+| S3 に `daily-report.json` が生成されない | Lambda の IAM ロールに S3 PutObject 権限がない | `terraform plan` で `scheduler` Lambda のポリシーを確認 |
+| DynamoDB に結果が記録されない | `processor` Lambda の環境変数 `DYNAMODB_TABLE_NAME` が未設定 | Lambda の環境変数を確認 |
+
+---
+
+## ローカル開発・テスト方法
+
+### Lambda の手動実行（Pattern A テスト）
+
+```bash
+cd environments/dev
+aws-vault exec personal-dev-source -- aws lambda invoke \
+  --function-name eventbridge-lambda-dev-scheduler \
+  --payload '{}' \
+  response.json
+cat response.json
+
+# S3 に出力されたか確認
+aws-vault exec personal-dev-source -- aws s3 ls \
+  s3://$(terraform output -raw report_bucket_name)/reports/ --recursive
+```
+
+### Pattern B の手動テスト（ファイルアップロード）
+
+```bash
+echo "test data" > test.txt
+aws-vault exec personal-dev-source -- aws s3 cp test.txt \
+  s3://$(terraform output -raw input_bucket_name)/
+
+# DynamoDB に記録されたか確認
+aws-vault exec personal-dev-source -- aws dynamodb scan \
+  --table-name $(terraform output -raw dynamodb_table_name)
+```
+
+### Terraform の静的チェック（AWS 接続不要）
+
+```bash
+cd environments/dev
+terraform fmt -check
+terraform validate
+```
+
+---
+
 ## CI / セキュリティスキャン
 
 GitHub Actions で Terraform の静的解析（Checkov）を自動実行しています。
