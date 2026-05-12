@@ -32,6 +32,5 @@ delete.json
 versions.json
 test.txt
 
-# Go ビルド成果物（バイナリは除外・ソースのみ管理）
+# Go ビルド成果物（バイナリは除外・go.sum はコミット対象）
 lambda_go/*/bootstrap
-lambda_go/go.sum
