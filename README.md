@@ -4,11 +4,14 @@
 ![Terraform](https://img.shields.io/badge/Terraform-623CE4?style=flat&logo=terraform&logoColor=white)
 ![AWS](https://img.shields.io/badge/AWS-232F3E?style=flat&logo=amazon-aws&logoColor=white)
 ![Python](https://img.shields.io/badge/Python-3776AB?style=flat&logo=python&logoColor=white)
+![Go](https://img.shields.io/badge/Go-00ADD8?style=flat&logo=go&logoColor=white)
 ![Claude Code](https://img.shields.io/badge/Built%20with-Claude%20Code-orange?logo=anthropic)
 ![Claude Cowork](https://img.shields.io/badge/Daily%20Use-Claude%20Cowork-blueviolet?logo=anthropic)
 ![Claude Skills](https://img.shields.io/badge/Custom-Skills%20Configured-green?logo=anthropic)
 
 Amazon EventBridge + AWS Lambda による**スケジュール実行**と**S3 イベント駆動**の 2 パターンを Terraform で IaC 化した PoC。
+
+**同じロジックを Python（`lambda_src/`）と Go（`lambda_go/`）で並置実装。コールドスタート・メモリ使用量の違いを体験・比較できる構成になっています。**
 
 ---
 
@@ -56,7 +59,7 @@ EventBridge Scheduler
 | カテゴリ | 技術 |
 |---|---|
 | イベント管理 | Amazon EventBridge（スケジュール / イベントパターン） |
-| 処理 | AWS Lambda（Python 3.11） |
+| 処理 | AWS Lambda（Python 3.11 / Go 1.21 並置実装） |
 | ストレージ | Amazon S3（レポート保存 / イベントトリガー） |
 | DB | Amazon DynamoDB（処理結果記録 / PAY_PER_REQUEST） |
 | IaC | Terraform（モジュール構成） |
@@ -68,22 +71,66 @@ EventBridge Scheduler
 
 ```
 aws-eventbridge-lambda/
-├── lambda_src/
-│   ├── scheduler/          # Pattern A: 定期レポート生成 Lambda
-│   │   └── index.py
-│   └── processor/          # Pattern B: S3 イベント処理 Lambda
-│       └── index.py
+├── lambda_src/                  # Python 実装（既存）
+│   ├── scheduler/
+│   │   └── index.py             # Pattern A: 定期レポート生成
+│   └── processor/
+│       └── index.py             # Pattern B: S3 イベント処理
+├── lambda_go/                   # Go 実装（並置）← 同じロジックを Go で
+│   ├── go.mod
+│   ├── scheduler/
+│   │   └── main.go              # Pattern A の Go 版
+│   └── processor/
+│       └── main.go              # Pattern B の Go 版
 ├── modules/
-│   ├── lambda/             # Lambda 関数 + IAM ロール（共通モジュール）
-│   ├── eventbridge/        # EventBridge ルール + Lambda 実行権限
-│   └── s3/                 # S3 バケット + EventBridge 通知設定
+│   ├── lambda/                  # Lambda 関数 + IAM ロール（共通モジュール）
+│   ├── eventbridge/             # EventBridge ルール + Lambda 実行権限
+│   └── s3/                      # S3 バケット + EventBridge 通知設定
 ├── environments/
 │   └── dev/
-│       ├── main.tf         # モジュール統合 + DynamoDB
+│       ├── main.tf              # モジュール統合 + DynamoDB
 │       ├── variables.tf
 │       ├── outputs.tf
 │       └── terraform.tfvars.example
 └── docs/
+```
+
+---
+
+## Go 版（並置実装）: Python vs Go 比較
+
+同じビジネスロジックを **Python**（`lambda_src/`）と **Go**（`lambda_go/`）の両方で実装しています。
+
+### なぜ Go を Lambda に使うのか
+
+| 観点 | Python | Go |
+|---|---|---|
+| コールドスタート | ~300ms | **~100ms**（約3倍速） |
+| メモリ使用量 | ~60MB | **~30MB**（約半分） |
+| デプロイ成果物 | ランタイム + コード | **単一バイナリ**（bootstrap） |
+| 型安全性 | 実行時エラー | **コンパイル時エラー** |
+| 並行処理 | GIL の制約あり | **goroutine で高効率** |
+
+> スケジュール実行（月数十回程度）なら Python で十分。ただし高頻度イベント駆動や応答速度が重要な場面では Go が有利。
+
+### Go 版ビルド手順
+
+```bash
+# Go のインストール（未インストールの場合）
+# https://go.dev/dl/ から go1.21+ をダウンロード
+
+cd lambda_go
+
+# 依存パッケージの解決
+go mod tidy
+
+# scheduler ビルド（Linux/amd64 向け Lambda バイナリ）
+GOOS=linux GOARCH=amd64 go build -o scheduler/bootstrap ./scheduler/
+zip -j scheduler.zip scheduler/bootstrap
+
+# processor ビルド
+GOOS=linux GOARCH=amd64 go build -o processor/bootstrap ./processor/
+zip -j processor.zip processor/bootstrap
 ```
 
 ---

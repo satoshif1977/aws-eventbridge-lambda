@@ -31,3 +31,7 @@ response.json
 delete.json
 versions.json
 test.txt
+
+# Go ビルド成果物（バイナリは除外・ソースのみ管理）
+lambda_go/*/bootstrap
+lambda_go/go.sum
