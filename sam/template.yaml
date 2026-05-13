@@ -1,0 +1,239 @@
+AWSTemplateFormatVersion: '2010-09-09'
+# ── SAM Transform ──────────────────────────────────────────────────────────
+# このキーが SAM テンプレートの必須宣言。
+# CloudFormation がデプロイ前に SAM の拡張構文（AWS::Serverless::*）を
+# 通常の CFn リソースに自動変換する。
+Transform: AWS::Serverless-2016-10-31
+
+Description: >
+  EventBridge + Lambda（スケジュール実行 / S3 イベント駆動）ワークフロー。
+  aws-eventbridge-lambda の Terraform 版と同等の構成を SAM で実装。
+  Terraform との比較:
+    - EventBridge ルール + Lambda Permission が Events: 1ブロックで自動生成される
+    - Globals: でランタイム・タイムアウトを一元管理
+    - sam build + sam deploy でワンコマンドデプロイ可能
+
+# ── グローバル設定 ────────────────────────────────────────────────────────
+# Terraform の locals {} に相当。全 Serverless Function に共通適用される。
+Globals:
+  Function:
+    Runtime: python3.11
+    Timeout: 30
+    MemorySize: 128
+    # X-Ray: dev は PassThrough（無料）。本番で監視が必要な場合のみ Active に変更
+    Tracing: PassThrough
+    Environment:
+      Variables:
+        # 環境変数は各関数の Properties.Environment.Variables で上書きできる
+        AWS_LAMBDA_FUNCTION_REGION: !Ref AWS::Region
+
+# ── パラメータ ────────────────────────────────────────────────────────────
+Parameters:
+
+  ProjectName:
+    Type: String
+    Default: eventbridge-lambda
+    Description: プロジェクト名（リソース命名プレフィックス）
+
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, stg, prod]
+    Description: 環境名
+
+# ── リソース ─────────────────────────────────────────────────────────────
+Resources:
+
+  # ── 1. S3: レポート保存用バケット（Pattern A）────────────────────────
+  # Terraform 版: modules/s3/main.tf aws_s3_bucket.report に相当
+  # SAM には AWS::Serverless::Bucket はなく、通常の AWS::S3::Bucket を使う
+  ReportBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${ProjectName}-${Environment}-report-${AWS::AccountId}"
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-old-reports
+            Status: Enabled
+            ExpirationInDays: 90 # 90日後に自動削除
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: ManagedBy
+          Value: SAM
+
+  # ── 2. S3: 処理トリガー用バケット（Pattern B）────────────────────────
+  # Terraform 版: modules/s3/main.tf aws_s3_bucket.input + aws_s3_bucket_notification に相当
+  InputBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${ProjectName}-${Environment}-input-${AWS::AccountId}"
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-old-inputs
+            Status: Enabled
+            ExpirationInDays: 30 # 30日後に自動削除
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+      # Terraform 版: aws_s3_bucket_notification { eventbridge = true } に相当
+      NotificationConfiguration:
+        EventBridgeConfiguration:
+          EventBridgeEnabled: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: ManagedBy
+          Value: SAM
+
+  # ── 3. DynamoDB: 処理結果記録テーブル（Pattern B）────────────────────
+  # Terraform 版: environments/dev/main.tf aws_dynamodb_table.processed_files に相当
+  ProcessedFilesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${ProjectName}-${Environment}-processed-files"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      DeletionProtectionEnabled: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: ManagedBy
+          Value: SAM
+
+  # ── 4. Lambda: scheduler（Pattern A・スケジュール実行）───────────────
+  # Terraform 版:
+  #   module "lambda_scheduler" → 関数本体
+  #   module "eventbridge" → aws_cloudwatch_event_rule + aws_cloudwatch_event_target + aws_lambda_permission
+  # SAM 版: Events: ブロックだけで上記3リソースを自動生成（これが SAM の最大の強み）
+  SchedulerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${ProjectName}-${Environment}-scheduler"
+      # CodeUri は template.yaml からの相対パス。sam build 時に zip 化される
+      CodeUri: ../lambda_src/scheduler/
+      Handler: index.lambda_handler
+      Description: EventBridge スケジュール（毎日 9:00 JST）から起動し日次レポートを S3 に保存
+      Environment:
+        Variables:
+          REPORT_BUCKET_NAME: !Ref ReportBucket
+      # Policies: リストを書くだけで IAM ロール + ポリシーを自動生成
+      # Terraform 版: policy_statements = [{ Effect = "Allow", Action = ["s3:PutObject"], ... }]
+      Policies:
+        - S3WritePolicy:
+            BucketName: !Ref ReportBucket
+      # Events: が SAM の核心機能
+      # この1ブロックで EventBridge ルール + ターゲット + Lambda Permission を自動生成する
+      # Terraform 版では3つのリソース（event_rule / event_target / lambda_permission）が必要
+      Events:
+        DailySchedule:
+          Type: Schedule
+          Properties:
+            # UTC 0:00 = JST 9:00
+            Schedule: cron(0 0 * * ? *)
+            Description: 毎日 9:00 JST に Lambda を起動して日次レポートを生成する
+            Enabled: true
+      Tags:
+        Environment: !Ref Environment
+        Project: !Ref ProjectName
+        ManagedBy: SAM
+
+  # ── 5. Lambda: processor（Pattern B・S3 イベント駆動）───────────────
+  # Terraform 版:
+  #   module "lambda_processor" → 関数本体
+  #   module "eventbridge" → S3 イベントパターンルール + ターゲット + Lambda Permission
+  # SAM 版: EventBridgeRule イベントで上記をすべて自動生成
+  ProcessorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${ProjectName}-${Environment}-processor"
+      CodeUri: ../lambda_src/processor/
+      Handler: index.lambda_handler
+      Description: S3 オブジェクト作成を EventBridge 経由で検知し DynamoDB に記録
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref ProcessedFilesTable
+      Policies:
+        - DynamoDBWritePolicy:
+            TableName: !Ref ProcessedFilesTable
+      Events:
+        # EventBridgeRule: S3 の Object Created イベントをパターンマッチングでフィルタ
+        # Terraform 版の event_pattern = jsonencode({...}) に相当
+        S3ObjectCreated:
+          Type: EventBridgeRule
+          Properties:
+            Pattern:
+              source:
+                - aws.s3
+              detail-type:
+                - Object Created
+              detail:
+                bucket:
+                  name:
+                    - !Ref InputBucket
+      Tags:
+        Environment: !Ref Environment
+        Project: !Ref ProjectName
+        ManagedBy: SAM
+
+# ── 出力 ─────────────────────────────────────────────────────────────────
+Outputs:
+
+  SchedulerFunctionArn:
+    Description: scheduler Lambda 関数 ARN
+    Value: !GetAtt SchedulerFunction.Arn
+
+  ProcessorFunctionArn:
+    Description: processor Lambda 関数 ARN
+    Value: !GetAtt ProcessorFunction.Arn
+
+  ReportBucketName:
+    Description: レポート保存用 S3 バケット名
+    Value: !Ref ReportBucket
+
+  InputBucketName:
+    Description: 処理トリガー用 S3 バケット名
+    Value: !Ref InputBucket
+
+  ProcessedFilesTableName:
+    Description: DynamoDB テーブル名
+    Value: !Ref ProcessedFilesTable
