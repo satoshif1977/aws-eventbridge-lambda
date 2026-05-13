@@ -1,0 +1,42 @@
+name: Go Test
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'lambda_go/**'
+  pull_request:
+    branches: [master]
+    paths:
+      - 'lambda_go/**'
+
+jobs:
+  test:
+    name: Go ユニットテスト
+    runs-on: ubuntu-latest
+
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+    defaults:
+      run:
+        working-directory: lambda_go
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: lambda_go/go.mod
+          cache-dependency-path: lambda_go/go.sum
+
+      - name: go vet（静的解析）
+        run: go vet ./...
+
+      - name: go test - scheduler
+        run: go test ./scheduler/... -v -count=1
+
+      - name: go test - processor
+        run: go test ./processor/... -v -count=1
