@@ -62,16 +62,25 @@ func init() {
 	ddbClient = dynamodb.NewFromConfig(cfg)
 }
 
+// ── ヘルパー関数 ──────────────────────────────────────────────
+
+// validateEvent はイベントのバケット名とキーが有効かチェックする。
+func validateEvent(event S3EventBridgeEvent) bool {
+	return event.Detail.Bucket.Name != "" && event.Detail.Object.Key != ""
+}
+
+// buildPK は S3 オブジェクトの DynamoDB パーティションキーを生成する。
+// 例: "s3://my-bucket/uploads/test.pdf"
+func buildPK(bucket, key string) string {
+	return fmt.Sprintf("s3://%s/%s", bucket, key)
+}
+
 // ── ハンドラー ────────────────────────────────────────────────
 
 func handler(ctx context.Context, event S3EventBridgeEvent) (Response, error) {
 	log.Printf("S3 イベント処理開始: %s", event.Time)
 
-	bucketName := event.Detail.Bucket.Name
-	objectKey := event.Detail.Object.Key
-	objectSize := event.Detail.Object.Size
-
-	if bucketName == "" || objectKey == "" {
+	if !validateEvent(event) {
 		log.Println("バケット名またはオブジェクトキーが取得できませんでした")
 		return Response{
 			StatusCode: 400,
@@ -80,12 +89,16 @@ func handler(ctx context.Context, event S3EventBridgeEvent) (Response, error) {
 		}, nil
 	}
 
+	bucketName := event.Detail.Bucket.Name
+	objectKey := event.Detail.Object.Key
+	objectSize := event.Detail.Object.Size
+
 	log.Printf("処理対象: s3://%s/%s (%d bytes)", bucketName, objectKey, objectSize)
 
 	// JST タイムゾーン
 	jst := time.FixedZone("JST", 9*60*60)
 	now := time.Now().In(jst)
-	pk := fmt.Sprintf("s3://%s/%s", bucketName, objectKey)
+	pk := buildPK(bucketName, objectKey)
 	processedAt := now.Format("2006-01-02T15:04:05+09:00")
 
 	tableName := os.Getenv("DYNAMODB_TABLE_NAME")

@@ -54,6 +54,14 @@ func init() {
 	s3Client = s3.NewFromConfig(cfg)
 }
 
+// ── ヘルパー関数 ──────────────────────────────────────────────
+
+// generateReportKey は JST の日付から S3 レポートキーを生成する。
+// 例: "reports/2026-05-13/daily-report.json"
+func generateReportKey(t time.Time) string {
+	return fmt.Sprintf("reports/%s/daily-report.json", t.Format("2006-01-02"))
+}
+
 // ── ハンドラー ────────────────────────────────────────────────
 
 // handler は EventBridge スケジュールイベントを受け取り、日次レポートを S3 に保存する。
@@ -62,21 +70,20 @@ func handler(ctx context.Context, _ json.RawMessage) (Response, error) {
 	// JST タイムゾーン
 	jst := time.FixedZone("JST", 9*60*60)
 	now := time.Now().In(jst)
-	dateStr := now.Format("2006-01-02")
 	timestampStr := now.Format("2006-01-02T15:04:05+09:00")
 
 	log.Printf("スケジュール実行開始: %s", timestampStr)
 
 	bucketName := os.Getenv("REPORT_BUCKET_NAME")
 	functionName := os.Getenv("AWS_LAMBDA_FUNCTION_NAME")
-	reportKey := fmt.Sprintf("reports/%s/daily-report.json", dateStr)
+	reportKey := generateReportKey(now)
 
 	// ── レポート生成 ────────────────────────────────────────
 	report := DailyReport{
-		ReportDate:     dateStr,
+		ReportDate:     now.Format("2006-01-02"),
 		GeneratedAt:    timestampStr,
 		Source:         "EventBridge Scheduler (Go)",
-		Message:        fmt.Sprintf("%s の日次レポートを生成しました。", dateStr),
+		Message:        fmt.Sprintf("%s の日次レポートを生成しました。", now.Format("2006-01-02")),
 		LambdaFunction: functionName,
 	}
 
