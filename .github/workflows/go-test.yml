@@ -5,10 +5,12 @@ on:
     branches: [master]
     paths:
       - 'lambda_go/**'
+      - '.github/workflows/go-test.yml'
   pull_request:
     branches: [master]
     paths:
       - 'lambda_go/**'
+      - '.github/workflows/go-test.yml'
 
 jobs:
   test:
