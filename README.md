@@ -354,3 +354,7 @@ GitHub Actions で Terraform の静的解析（Checkov）を自動実行して�
 - [terraform-aws-operations](https://github.com/satoshif1977/terraform-aws-operations) - CloudWatch 監視・SNS 通知・Runbook（Lambda 監視アラームも含む）
 - [aws-step-functions-bedrock](https://github.com/satoshif1977/aws-step-functions-bedrock) - Step Functions + Bedrock による AI ワークフロー
 - [aws-ecs-bedrock-chat](https://github.com/satoshif1977/aws-ecs-bedrock-chat) - ECS Fargate + Bedrock チャットアプリ
+
+## Security
+
+See [SECURITY.md](SECURITY.md) for vulnerability reporting and security policies.
