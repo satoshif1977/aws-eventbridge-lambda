@@ -159,3 +159,172 @@ func TestResponseJSONMarshal(t *testing.T) {
 		t.Error("processed_key フィールドが JSON に含まれていない")
 	}
 }
+
+// ── buildPK 追加テスト ────────────────────────────────────────
+
+func TestBuildPKWithSpecialChars(t *testing.T) {
+	tests := []struct {
+		name     string
+		bucket   string
+		key      string
+		expected string
+	}{
+		{
+			name:     "スペースを含むキー",
+			bucket:   "my-bucket",
+			key:      "uploads/my file.pdf",
+			expected: "s3://my-bucket/uploads/my file.pdf",
+		},
+		{
+			name:     "日本語を含むキー",
+			bucket:   "my-bucket",
+			key:      "uploads/テスト.pdf",
+			expected: "s3://my-bucket/uploads/テスト.pdf",
+		},
+		{
+			name:     "ハイフン・アンダースコアを含むバケット名",
+			bucket:   "my-project_bucket-01",
+			key:      "data/file.json",
+			expected: "s3://my-project_bucket-01/data/file.json",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildPK(tt.bucket, tt.key)
+			if got != tt.expected {
+				t.Errorf("期待: %s, 実際: %s", tt.expected, got)
+			}
+		})
+	}
+}
+
+func TestBuildPKContainsBucketAndKey(t *testing.T) {
+	bucket := "test-bucket"
+	key := "prefix/file.csv"
+	pk := buildPK(bucket, key)
+	if !strings.Contains(pk, bucket) {
+		t.Errorf("PK にバケット名が含まれていない: %s", pk)
+	}
+	if !strings.Contains(pk, key) {
+		t.Errorf("PK にキーが含まれていない: %s", pk)
+	}
+}
+
+// ── validateEvent 追加テスト ──────────────────────────────────
+
+func TestValidateEventEdgeCases(t *testing.T) {
+	tests := []struct {
+		name   string
+		bucket string
+		key    string
+		wantOK bool
+	}{
+		{"スペースのみのバケット名", " ", "key.txt", true},  // 空文字ではないため true
+		{"スペースのみのキー", "bucket", " ", true},          // 空文字ではないため true
+		{"長いバケット名", strings.Repeat("a", 63), "key.txt", true},
+		{"深いパスのキー", "bucket", "a/b/c/d/e/f/g.txt", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var event S3EventBridgeEvent
+			event.Detail.Bucket.Name = tt.bucket
+			event.Detail.Object.Key = tt.key
+			got := validateEvent(event)
+			if got != tt.wantOK {
+				t.Errorf("%s: 期待 %v, 実際 %v", tt.name, tt.wantOK, got)
+			}
+		})
+	}
+}
+
+// ── S3EventBridgeEvent 追加テスト ─────────────────────────────
+
+func TestS3EventDetailZeroSize(t *testing.T) {
+	raw := `{
+		"time": "2026-05-15T00:00:00Z",
+		"detail": {
+			"bucket": {"name": "my-bucket"},
+			"object": {"key": "empty.txt", "size": 0}
+		}
+	}`
+	var event S3EventBridgeEvent
+	if err := json.Unmarshal([]byte(raw), &event); err != nil {
+		t.Fatalf("JSON パース失敗: %v", err)
+	}
+	if event.Detail.Object.Size != 0 {
+		t.Errorf("サイズ 0 が正しく解析されていない: %d", event.Detail.Object.Size)
+	}
+}
+
+func TestS3EventDetailLargeSize(t *testing.T) {
+	const largeSize = int64(5 * 1024 * 1024 * 1024) // 5GB
+	raw := `{"time":"2026-05-15T00:00:00Z","detail":{"bucket":{"name":"b"},"object":{"key":"large.bin","size":5368709120}}}`
+	var event S3EventBridgeEvent
+	if err := json.Unmarshal([]byte(raw), &event); err != nil {
+		t.Fatalf("JSON パース失敗: %v", err)
+	}
+	if event.Detail.Object.Size != largeSize {
+		t.Errorf("大サイズが正しく解析されていない: 期待 %d, 実際 %d", largeSize, event.Detail.Object.Size)
+	}
+}
+
+func TestS3EventBridgeEventRoundTrip(t *testing.T) {
+	original := S3EventBridgeEvent{
+		Time: "2026-05-15T12:00:00Z",
+	}
+	original.Detail.Bucket.Name = "round-trip-bucket"
+	original.Detail.Object.Key = "test/round-trip.json"
+	original.Detail.Object.Size = 2048
+
+	body, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("JSON エンコード失敗: %v", err)
+	}
+
+	var decoded S3EventBridgeEvent
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		t.Fatalf("JSON デコード失敗: %v", err)
+	}
+
+	if decoded.Detail.Bucket.Name != original.Detail.Bucket.Name {
+		t.Errorf("バケット名が不一致: 期待 %s, 実際 %s", original.Detail.Bucket.Name, decoded.Detail.Bucket.Name)
+	}
+	if decoded.Detail.Object.Key != original.Detail.Object.Key {
+		t.Errorf("キーが不一致: 期待 %s, 実際 %s", original.Detail.Object.Key, decoded.Detail.Object.Key)
+	}
+	if decoded.Detail.Object.Size != original.Detail.Object.Size {
+		t.Errorf("サイズが不一致: 期待 %d, 実際 %d", original.Detail.Object.Size, decoded.Detail.Object.Size)
+	}
+}
+
+// ── Response 追加テスト ───────────────────────────────────────
+
+func TestResponseZeroValue(t *testing.T) {
+	var resp Response
+	if resp.StatusCode != 0 {
+		t.Errorf("ゼロ値の StatusCode は 0 であるべき: %d", resp.StatusCode)
+	}
+	if resp.ProcessedCount != 0 {
+		t.Errorf("ゼロ値の ProcessedCount は 0 であるべき: %d", resp.ProcessedCount)
+	}
+}
+
+func TestResponseAllFields(t *testing.T) {
+	resp := Response{
+		StatusCode:     200,
+		Status:         "success",
+		ProcessedCount: 3,
+		ProcessedKey:   "uploads/batch.zip",
+		Message:        "バッチ処理完了",
+	}
+	body, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("JSON エンコード失敗: %v", err)
+	}
+	got := string(body)
+	for _, want := range []string{`"statusCode"`, `"status"`, `"processed_count"`, `"processed_key"`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("JSON に %s が含まれていない: %s", want, got)
+		}
+	}
+}
