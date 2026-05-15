@@ -125,3 +125,159 @@ func TestResponseJSONMarshal(t *testing.T) {
 		t.Error("report_key フィールドが JSON に含まれていない")
 	}
 }
+
+// ── generateReportKey 追加テスト ──────────────────────────────
+
+func TestGenerateReportKeyFormat(t *testing.T) {
+	jst := time.FixedZone("JST", 9*60*60)
+	t1 := time.Date(2026, 5, 15, 9, 0, 0, 0, jst)
+	key := generateReportKey(t1)
+
+	// "reports/YYYY-MM-DD/daily-report.json" の形式確認
+	parts := strings.Split(key, "/")
+	if len(parts) != 3 {
+		t.Errorf("キーのパス区切りが 3 パーツでない: %s (count=%d)", key, len(parts))
+	}
+	if parts[0] != "reports" {
+		t.Errorf("第1パーツが reports でない: %s", parts[0])
+	}
+	if len(parts[1]) != 10 { // YYYY-MM-DD = 10文字
+		t.Errorf("日付パーツが 10 文字でない: %s (len=%d)", parts[1], len(parts[1]))
+	}
+	if parts[2] != "daily-report.json" {
+		t.Errorf("ファイル名が daily-report.json でない: %s", parts[2])
+	}
+}
+
+func TestGenerateReportKeyLeapYear(t *testing.T) {
+	jst := time.FixedZone("JST", 9*60*60)
+	tests := []struct {
+		name     string
+		t        time.Time
+		expected string
+	}{
+		{
+			name:     "うるう年 2月29日",
+			t:        time.Date(2028, 2, 29, 9, 0, 0, 0, jst),
+			expected: "reports/2028-02-29/daily-report.json",
+		},
+		{
+			name:     "元旦",
+			t:        time.Date(2026, 1, 1, 0, 0, 0, 0, jst),
+			expected: "reports/2026-01-01/daily-report.json",
+		},
+		{
+			name:     "大晦日",
+			t:        time.Date(2026, 12, 31, 23, 59, 59, 0, jst),
+			expected: "reports/2026-12-31/daily-report.json",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := generateReportKey(tt.t)
+			if got != tt.expected {
+				t.Errorf("期待: %s, 実際: %s", tt.expected, got)
+			}
+		})
+	}
+}
+
+func TestGenerateReportKeyUniquenessPerDay(t *testing.T) {
+	jst := time.FixedZone("JST", 9*60*60)
+	day1 := time.Date(2026, 5, 14, 9, 0, 0, 0, jst)
+	day2 := time.Date(2026, 5, 15, 9, 0, 0, 0, jst)
+	if generateReportKey(day1) == generateReportKey(day2) {
+		t.Error("異なる日付でも同じキーが生成された")
+	}
+}
+
+func TestGenerateReportKeySameDay(t *testing.T) {
+	jst := time.FixedZone("JST", 9*60*60)
+	morning := time.Date(2026, 5, 15, 9, 0, 0, 0, jst)
+	evening := time.Date(2026, 5, 15, 21, 30, 0, 0, jst)
+	if generateReportKey(morning) != generateReportKey(evening) {
+		t.Error("同じ日付の異なる時刻でキーが変わってはいけない")
+	}
+}
+
+// ── DailyReport 追加テスト ────────────────────────────────────
+
+func TestDailyReportAllFields(t *testing.T) {
+	report := DailyReport{
+		ReportDate:     "2026-05-15",
+		GeneratedAt:    "2026-05-15T09:00:00+09:00",
+		Source:         "EventBridge Scheduler (Go)",
+		Message:        "2026-05-15 の日次レポートを生成しました。",
+		LambdaFunction: "my-scheduler-fn",
+	}
+	if report.ReportDate == "" {
+		t.Error("ReportDate が空")
+	}
+	if report.GeneratedAt == "" {
+		t.Error("GeneratedAt が空")
+	}
+	if report.Source == "" {
+		t.Error("Source が空")
+	}
+	if report.LambdaFunction == "" {
+		t.Error("LambdaFunction が空")
+	}
+}
+
+func TestDailyReportRoundTrip(t *testing.T) {
+	original := DailyReport{
+		ReportDate:     "2026-05-15",
+		GeneratedAt:    "2026-05-15T09:00:00+09:00",
+		Source:         "EventBridge Scheduler (Go)",
+		Message:        "テストレポート",
+		LambdaFunction: "test-fn",
+	}
+	body, err := json.MarshalIndent(original, "", "  ")
+	if err != nil {
+		t.Fatalf("JSON エンコード失敗: %v", err)
+	}
+	var decoded DailyReport
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		t.Fatalf("JSON デコード失敗: %v", err)
+	}
+	if decoded.ReportDate != original.ReportDate {
+		t.Errorf("ReportDate が不一致: 期待 %s, 実際 %s", original.ReportDate, decoded.ReportDate)
+	}
+	if decoded.Source != original.Source {
+		t.Errorf("Source が不一致: 期待 %s, 実際 %s", original.Source, decoded.Source)
+	}
+	if decoded.LambdaFunction != original.LambdaFunction {
+		t.Errorf("LambdaFunction が不一致: 期待 %s, 実際 %s", original.LambdaFunction, decoded.LambdaFunction)
+	}
+}
+
+// ── Response 追加テスト ───────────────────────────────────────
+
+func TestResponseAllFields(t *testing.T) {
+	resp := Response{
+		StatusCode:  200,
+		Status:      "success",
+		ReportKey:   "reports/2026-05-15/daily-report.json",
+		GeneratedAt: "2026-05-15T09:00:00+09:00",
+	}
+	body, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("JSON エンコード失敗: %v", err)
+	}
+	got := string(body)
+	for _, want := range []string{`"statusCode"`, `"status"`, `"report_key"`, `"generated_at"`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("JSON に %s が含まれていない", want)
+		}
+	}
+}
+
+func TestResponseZeroValue(t *testing.T) {
+	var resp Response
+	if resp.StatusCode != 0 {
+		t.Errorf("ゼロ値の StatusCode は 0 であるべき: %d", resp.StatusCode)
+	}
+	if resp.Status != "" {
+		t.Errorf("ゼロ値の Status は空文字であるべき: %s", resp.Status)
+	}
+}
