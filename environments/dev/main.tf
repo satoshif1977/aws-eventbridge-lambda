@@ -114,3 +114,27 @@ module "eventbridge" {
   processor_lambda_name = module.lambda_processor.function_name
   input_bucket_name     = module.s3.input_bucket_name
 }
+
+# ── Lambda: enricher（Pattern C: Pipes エンリッチメント）────
+module "lambda_enricher" {
+  source        = "../../modules/lambda"
+  project       = var.project
+  env           = var.env
+  function_name = "enricher"
+  source_dir    = "../../lambda_src/enricher"
+  timeout       = 30
+  tags          = local.tags
+
+  environment_variables = {}
+  policy_statements     = []
+}
+
+# ── Pipes モジュール（Pattern C）──────────────────────────
+module "pipes" {
+  source               = "../../modules/pipes"
+  project              = var.project
+  env                  = var.env
+  tags                 = local.tags
+  enricher_lambda_arn  = module.lambda_enricher.function_arn
+  processor_lambda_arn = module.lambda_processor.function_arn
+}

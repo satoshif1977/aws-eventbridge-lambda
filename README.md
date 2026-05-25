@@ -52,6 +52,42 @@ EventBridge Scheduler
 （処理結果を記録）
 ```
 
+### Pattern C: EventBridge Pipes（フィルター・エンリッチメント）
+
+EventBridge Pipes（2022年リリース）を使い、フィルタリング・エンリッチメント・ルーティングを **1リソース** で完結させるパターン。
+
+```
+SQS キュー（メッセージ送信）
+        ↓
+  EventBridge Pipes
+  ┌─────────────────────────────┐
+  │ 1. フィルター               │
+  │    size > 0 のみ通過        │
+  │    （空ファイルを除外）      │
+  │                             │
+  │ 2. エンリッチメント         │
+  │    enricher Lambda          │
+  │    → file_type / priority   │
+  │       を付与                │
+  │                             │
+  │ 3. ターゲット呼び出し       │
+  │    processor Lambda         │
+  └─────────────────────────────┘
+        ↓
+  Amazon DynamoDB
+（エンリッチ済み情報を記録）
+```
+
+**従来の Pattern B との違い:**
+
+| 比較項目 | Pattern B（EventBridge ルール） | Pattern C（EventBridge Pipes） |
+|---|---|---|
+| フィルタリング | ルールのイベントパターンのみ | Pipes フィルター（数値比較・複合条件） |
+| エンリッチメント | 不可（Lambda 内で処理） | Pipes でエンリッチメント Lambda を挟める |
+| ルーティング | ターゲット固定 | 条件分岐・複数ターゲット対応 |
+| 設定量 | ルール + ターゲット + Permission | Pipe 1リソースで完結 |
+| ユースケース | シンプルなイベント通知 | 複雑なフィルター・変換が必要な場合 |
+
 ---
 
 ## 技術スタック
@@ -71,11 +107,13 @@ EventBridge Scheduler
 
 ```
 aws-eventbridge-lambda/
-├── lambda_src/                  # Python 実装（既存）
+├── lambda_src/                  # Python 実装
 │   ├── scheduler/
 │   │   └── index.py             # Pattern A: 定期レポート生成
-│   └── processor/
-│       └── index.py             # Pattern B: S3 イベント処理
+│   ├── processor/
+│   │   └── index.py             # Pattern B: S3 イベント処理
+│   └── enricher/
+│       └── index.py             # Pattern C: Pipes エンリッチメント
 ├── lambda_go/                   # Go 実装（並置）← 同じロジックを Go で
 │   ├── go.mod
 │   ├── scheduler/
@@ -85,6 +123,7 @@ aws-eventbridge-lambda/
 ├── modules/
 │   ├── lambda/                  # Lambda 関数 + IAM ロール（共通モジュール）
 │   ├── eventbridge/             # EventBridge ルール + Lambda 実行権限
+│   ├── pipes/                   # Pattern C: EventBridge Pipes + SQS + IAM
 │   └── s3/                      # S3 バケット + EventBridge 通知設定
 ├── environments/
 │   └── dev/
