@@ -4,6 +4,7 @@
 
 # ── SQS キュー（Pipes のソース）─────────────────────────────
 resource "aws_sqs_queue" "source" {
+  # checkov:skip=CKV2_AWS_73: dev/PoC - KMS CMK 暗号化は不要（コスト最適化）
   name                       = "${var.project}-${var.env}-pipe-source"
   message_retention_seconds  = 86400 # 1日
   visibility_timeout_seconds = 60    # Lambda タイムアウト + 余裕
