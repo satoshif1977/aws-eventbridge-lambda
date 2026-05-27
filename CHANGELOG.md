@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-05-27
+
+### Fixed
+- Checkov CKV_AWS_27: SQS queue に sqs_managed_sse_enabled = true を追加（暗号化対応）
+
+### Changed
+- CI アクション更新: actions/checkout v4→v6 / actions/setup-python v5→v6 / actions/setup-go v5→v6 / codecov/codecov-action v5→v6 / hashicorp/setup-terraform v3→v4
+- hashicorp/aws プロバイダーを v5.0 → v6.46 に更新
+
+### Docs
+- スクリーンショット 7枚を docs/screenshots/ に移動・英語ファイル名に変更
+
 ## [1.3.0] - 2026-05-25
 
 ### Added
