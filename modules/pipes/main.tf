@@ -9,6 +9,9 @@ resource "aws_sqs_queue" "source" {
   visibility_timeout_seconds = 60    # Lambda タイムアウト + 余裕
   sqs_managed_sse_enabled    = true  # SSE 暗号化（SQS マネージドキー）
 
+  # SQS マネージド SSE（保存データの暗号化 / CKV_AWS_27）
+  sqs_managed_sse_enabled = true
+
   tags = var.tags
 }
 

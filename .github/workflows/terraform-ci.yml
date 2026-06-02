@@ -62,11 +62,14 @@ jobs:
       - name: pytest processor
         run: pytest lambda_src/processor/test_index.py -v --cov=lambda_src/processor --cov-report=xml:coverage-processor.xml --cov-append
 
+      - name: pytest enricher
+        run: pytest lambda_src/enricher/test_index.py -v --cov=lambda_src/enricher --cov-report=xml:coverage-enricher.xml --cov-append
+
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v6
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./coverage-scheduler.xml,./coverage-processor.xml
+          files: ./coverage-scheduler.xml,./coverage-processor.xml,./coverage-enricher.xml
           flags: lambda
           fail_ci_if_error: false
 
