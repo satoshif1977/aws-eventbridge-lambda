@@ -281,3 +281,63 @@ func TestResponseZeroValue(t *testing.T) {
 		t.Errorf("ゼロ値の Status は空文字であるべき: %s", resp.Status)
 	}
 }
+
+// ── ベンチマーク ──────────────────────────────────────────────
+
+func BenchmarkGenerateReportKey(b *testing.B) {
+	jst := time.FixedZone("JST", 9*60*60)
+	t1 := time.Date(2026, 6, 8, 9, 0, 0, 0, jst)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		generateReportKey(t1)
+	}
+}
+
+func BenchmarkGenerateReportKeyNow(b *testing.B) {
+	jst := time.FixedZone("JST", 9*60*60)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		generateReportKey(time.Now().In(jst))
+	}
+}
+
+func BenchmarkDailyReportJSONMarshal(b *testing.B) {
+	report := DailyReport{
+		ReportDate:     "2026-06-08",
+		GeneratedAt:    "2026-06-08T09:00:00+09:00",
+		Source:         "EventBridge Scheduler (Go)",
+		Message:        "2026-06-08 の日次レポートを生成しました。",
+		LambdaFunction: "scheduler-fn",
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = json.Marshal(report)
+	}
+}
+
+func BenchmarkDailyReportJSONMarshalIndent(b *testing.B) {
+	report := DailyReport{
+		ReportDate:     "2026-06-08",
+		GeneratedAt:    "2026-06-08T09:00:00+09:00",
+		Source:         "EventBridge Scheduler (Go)",
+		Message:        "2026-06-08 の日次レポートを生成しました。",
+		LambdaFunction: "scheduler-fn",
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = json.MarshalIndent(report, "", "  ")
+	}
+}
+
+func BenchmarkResponseJSONMarshal(b *testing.B) {
+	resp := Response{
+		StatusCode:  200,
+		Status:      "success",
+		ReportKey:   "reports/2026-06-08/daily-report.json",
+		GeneratedAt: "2026-06-08T09:00:00+09:00",
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = json.Marshal(resp)
+	}
+}

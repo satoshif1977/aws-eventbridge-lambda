@@ -210,6 +210,66 @@ func TestBuildPKContainsBucketAndKey(t *testing.T) {
 	}
 }
 
+// ── ベンチマーク ──────────────────────────────────────────────
+
+func BenchmarkBuildPK(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		buildPK("my-bucket", "uploads/test.pdf")
+	}
+}
+
+func BenchmarkBuildPKNestedPath(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		buildPK("my-bucket", "2026/06/08/data/report.json")
+	}
+}
+
+func BenchmarkValidateEvent(b *testing.B) {
+	var event S3EventBridgeEvent
+	event.Detail.Bucket.Name = "my-bucket"
+	event.Detail.Object.Key = "uploads/test.pdf"
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		validateEvent(event)
+	}
+}
+
+func BenchmarkValidateEventInvalid(b *testing.B) {
+	var event S3EventBridgeEvent // バケット名・キーが空
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		validateEvent(event)
+	}
+}
+
+func BenchmarkS3EventBridgeEventJSONUnmarshal(b *testing.B) {
+	raw := []byte(`{
+		"time": "2026-06-08T00:00:00Z",
+		"detail": {
+			"bucket": {"name": "my-bucket"},
+			"object": {"key": "uploads/test.pdf", "size": 1024}
+		}
+	}`)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		var event S3EventBridgeEvent
+		_ = json.Unmarshal(raw, &event)
+	}
+}
+
+func BenchmarkResponseJSONMarshal(b *testing.B) {
+	resp := Response{
+		StatusCode:     200,
+		Status:         "success",
+		ProcessedCount: 1,
+		ProcessedKey:   "uploads/test.pdf",
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = json.Marshal(resp)
+	}
+}
+
 // ── validateEvent 追加テスト ──────────────────────────────────
 
 func TestValidateEventEdgeCases(t *testing.T) {
