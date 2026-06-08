@@ -307,6 +307,23 @@ aws-vault exec personal-dev-source -- aws dynamodb scan \
   --table-name $(terraform output -raw dynamodb_table_name)
 ```
 
+### Python ユニットテスト（AWS 接続不要）
+
+`lambda_src/` の各ハンドラーは pytest でローカル実行できます。AWS 接続は不要です。
+
+```bash
+pip install pytest boto3 botocore
+pytest lambda_src/ -v
+```
+
+| テストファイル | テスト数 | 主な検証内容 |
+|---|---|---|
+| `lambda_src/scheduler/test_index.py` | 8 件 | 正常系（200・report_key）/ S3 PUT 構造 / JST タイムスタンプ / ContentType / 日付フォーマット / エラー伝播 |
+| `lambda_src/processor/test_index.py` | 8 件 | 正常系（200・processed_key）/ DynamoDB 書き込み内容 / バリデーション（400）/ 日本語ファイル名 / エラー伝播 |
+| **合計** | **16 件** | |
+
+---
+
 ### Terraform の静的チェック（AWS 接続不要）
 
 ```bash
