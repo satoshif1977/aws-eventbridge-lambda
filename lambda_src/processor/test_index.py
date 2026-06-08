@@ -64,3 +64,56 @@ class TestProcessorLambda:
         event = {"detail": {}}
         result = lambda_handler(event, make_context())
         assert result["statusCode"] == 400
+
+    @patch("index.dynamodb")
+    @patch.dict("os.environ", {"DYNAMODB_TABLE_NAME": "test-table"})
+    def test_オブジェクトキーなしのイベントは400を返す(self, mock_dynamodb):
+        mock_dynamodb.Table.return_value = MagicMock()
+        event = {"detail": {"bucket": {"name": "my-bucket"}, "object": {"key": ""}}}
+        result = lambda_handler(event, make_context())
+        assert result["statusCode"] == 400
+
+    @patch("index.dynamodb")
+    @patch.dict("os.environ", {"DYNAMODB_TABLE_NAME": "test-table"})
+    def test_lambda_request_idがアイテムに記録される(self, mock_dynamodb):
+        mock_table = MagicMock()
+        mock_dynamodb.Table.return_value = mock_table
+
+        lambda_handler(make_s3_event(), make_context(request_id="req-abc-123"))
+
+        item = mock_table.put_item.call_args.kwargs["Item"]
+        assert item["lambda_request_id"] == "req-abc-123"
+
+    @patch("index.dynamodb")
+    @patch.dict("os.environ", {"DYNAMODB_TABLE_NAME": "test-table"})
+    def test_event_timeがアイテムに記録される(self, mock_dynamodb):
+        mock_table = MagicMock()
+        mock_dynamodb.Table.return_value = mock_table
+
+        event = make_s3_event()
+        lambda_handler(event, make_context())
+
+        item = mock_table.put_item.call_args.kwargs["Item"]
+        assert item["event_time"] == "2026-04-17T00:00:00Z"
+
+    @patch("index.dynamodb")
+    @patch.dict("os.environ", {"DYNAMODB_TABLE_NAME": "test-table"})
+    def test_日本語ファイル名のキーを正しく処理する(self, mock_dynamodb):
+        mock_table = MagicMock()
+        mock_dynamodb.Table.return_value = mock_table
+
+        event = make_s3_event(bucket="my-bucket", key="uploads/テスト資料.pdf", size=2048)
+        result = lambda_handler(event, make_context())
+
+        assert result["statusCode"] == 200
+        assert result["processed_key"] == "uploads/テスト資料.pdf"
+
+    @patch("index.dynamodb")
+    @patch.dict("os.environ", {"DYNAMODB_TABLE_NAME": "test-table"})
+    def test_DynamoDB書き込みエラーは例外を伝播する(self, mock_dynamodb):
+        mock_table = MagicMock()
+        mock_table.put_item.side_effect = Exception("DynamoDB connection error")
+        mock_dynamodb.Table.return_value = mock_table
+
+        with pytest.raises(Exception, match="DynamoDB connection error"):
+            lambda_handler(make_s3_event(), make_context())
