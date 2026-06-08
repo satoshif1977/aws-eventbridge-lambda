@@ -1,17 +1,19 @@
 # aws-eventbridge-lambda
 
 ![CI](https://github.com/satoshif1977/aws-eventbridge-lambda/actions/workflows/terraform-ci.yml/badge.svg)
+![TS Test](https://github.com/satoshif1977/aws-eventbridge-lambda/actions/workflows/ts-test.yml/badge.svg)
 ![Terraform](https://img.shields.io/badge/Terraform-623CE4?style=flat&logo=terraform&logoColor=white)
 ![AWS](https://img.shields.io/badge/AWS-232F3E?style=flat&logo=amazon-aws&logoColor=white)
 ![Python](https://img.shields.io/badge/Python-3776AB?style=flat&logo=python&logoColor=white)
 ![Go](https://img.shields.io/badge/Go-00ADD8?style=flat&logo=go&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=flat&logo=typescript&logoColor=white)
 ![Claude Code](https://img.shields.io/badge/Built%20with-Claude%20Code-orange?logo=anthropic)
 ![Claude Cowork](https://img.shields.io/badge/Daily%20Use-Claude%20Cowork-blueviolet?logo=anthropic)
 ![Claude Skills](https://img.shields.io/badge/Custom-Skills%20Configured-green?logo=anthropic)
 
 Amazon EventBridge + AWS Lambda による**スケジュール実行**と**S3 イベント駆動**の 2 パターンを Terraform で IaC 化した PoC。
 
-**同じロジックを Python（`lambda_src/`）と Go（`lambda_go/`）で並置実装。コールドスタート・メモリ使用量の違いを体験・比較できる構成になっています。**
+**同じロジックを Python（`lambda_src/`）・Go（`lambda_go/`）・TypeScript（`lambda_ts/`）の 3 言語で並置実装。コールドスタート・型安全性・テスト容易性の違いを体験・比較できる構成になっています。**
 
 ---
 
@@ -95,7 +97,7 @@ SQS キュー（メッセージ送信）
 | カテゴリ | 技術 |
 |---|---|
 | イベント管理 | Amazon EventBridge（スケジュール / イベントパターン） |
-| 処理 | AWS Lambda（Python 3.11 / Go 1.21 並置実装） |
+| 処理 | AWS Lambda（Python 3.11 / Go 1.21 / TypeScript 5 の 3 言語並置実装） |
 | ストレージ | Amazon S3（レポート保存 / イベントトリガー） |
 | DB | Amazon DynamoDB（処理結果記録 / PAY_PER_REQUEST） |
 | IaC | Terraform（モジュール構成） |
@@ -120,6 +122,13 @@ aws-eventbridge-lambda/
 │   │   └── main.go              # Pattern A の Go 版
 │   └── processor/
 │       └── main.go              # Pattern B の Go 版
+├── lambda_ts/                   # TypeScript 実装（並置）← 同じロジックを TypeScript で
+│   ├── package.json
+│   ├── tsconfig.json
+│   └── src/
+│       └── enricher/
+│           ├── index.ts         # Pattern C: エンリッチメント Lambda（TypeScript 版）
+│           └── index.test.ts    # Jest ユニットテスト（26 件）
 ├── modules/
 │   ├── lambda/                  # Lambda 関数 + IAM ロール（共通モジュール）
 │   ├── eventbridge/             # EventBridge ルール + Lambda 実行権限
@@ -133,6 +142,70 @@ aws-eventbridge-lambda/
 │       └── terraform.tfvars.example
 └── docs/
 ```
+
+---
+
+## 3 言語並置実装: Python / Go / TypeScript 比較
+
+同じビジネスロジックを **Python**（`lambda_src/`）・**Go**（`lambda_go/`）・**TypeScript**（`lambda_ts/`）の 3 言語で実装しています。
+
+### 3 言語比較表
+
+| 観点 | Python | Go | TypeScript |
+|---|---|---|---|
+| コールドスタート | ~300ms | **~100ms**（最速） | ~200ms |
+| メモリ使用量 | ~60MB | **~30MB**（最小） | ~50MB |
+| デプロイ成果物 | ランタイム + コード | **単一バイナリ**（bootstrap） | JS バンドル |
+| 型安全性 | 実行時エラー | コンパイル時エラー | **Union 型・型推論**（柔軟） |
+| テスト容易性 | pytest・moto | go test・インターフェース | **Jest・純粋関数**（最も書きやすい） |
+| 学習コスト | 低い | 高め | 中程度 |
+| 主な用途 | 既存 Python 資産・glue code | 高頻度・低レイテンシ | フロントエンドチームとのコード共有 |
+
+> スケジュール実行（月数十回程度）なら Python で十分。高頻度イベント駆動は Go が有利。フロントエンドと Lambda を同一チームで管理するなら TypeScript が便利。
+
+---
+
+## TypeScript 版（並置実装）: Pattern C エンリッチメント Lambda
+
+`lambda_ts/src/enricher/` に Pattern C（EventBridge Pipes エンリッチメント）の TypeScript 版を実装しています。
+
+### 型定義の活用
+
+```typescript
+// Priority は Union 型で定義 → 文字列ミスをコンパイル時に検出
+export type Priority = 'high' | 'normal';
+
+export interface EnricherInput {
+  key?: string;
+  size?: number | string;  // SQS 経由で文字列になる場合も考慮
+  [key: string]: unknown;
+}
+
+export interface EnricherOutput extends EnricherInput {
+  file_type: string;
+  priority: Priority;
+  enriched_at: string;
+}
+```
+
+### TypeScript 版テスト（Jest）
+
+AWS 接続不要・純粋関数を Jest で検証（26 件）。
+
+```bash
+cd lambda_ts
+npm install
+npm test
+```
+
+| テストグループ | テスト数 | 主な検証内容 |
+|---|---|---|
+| `detectFileType` | 12 件 | CSV/JSON/XML/TXT/LOG/ZIP/GZ/日本語ファイル名/拡張子なし/未登録拡張子 |
+| `detectPriority` | 5 件 | 1MB 閾値の境界値テスト（ちょうど・超え・未満・ゼロ・大サイズ） |
+| `nowJST` | 2 件 | `+09:00` サフィックス / ISO 8601 形式 |
+| `handler`（単体） | 5 件 | 基本動作・元フィールド保持・high priority・文字列 size・key なし |
+| `handler`（配列） | 2 件 | 配列先頭要素処理・空配列フォールバック |
+| **合計** | **26 件** | |
 
 ---
 
@@ -322,6 +395,16 @@ pytest lambda_src/ -v
 | `lambda_src/processor/test_index.py` | 8 件 | 正常系（200・processed_key）/ DynamoDB 書き込み内容 / バリデーション（400）/ 日本語ファイル名 / エラー伝播 |
 | **合計** | **16 件** | |
 
+### TypeScript ユニットテスト（AWS 接続不要）
+
+`lambda_ts/` の enricher は Jest でローカル実行できます。AWS 接続は不要です。
+
+```bash
+cd lambda_ts
+npm install
+npm test
+```
+
 ---
 
 ### Terraform の静的チェック（AWS 接続不要）
@@ -340,11 +423,13 @@ GitHub Actions で Terraform の静的解析（Checkov）を自動実行して�
 
 ### 実施内容
 
-| ジョブ | 内容 |
-|---|---|
-| terraform fmt | フォーマット違反の検出 |
-| terraform validate | 構文・参照エラーの検出 |
-| Checkov セキュリティスキャン | IaC のセキュリティポリシー違反を検出（soft_fail: false） |
+| ジョブ | ワークフロー | 内容 |
+|---|---|---|
+| terraform fmt | terraform-ci.yml | フォーマット違反の検出 |
+| terraform validate | terraform-ci.yml | 構文・参照エラーの検出 |
+| Checkov セキュリティスキャン | terraform-ci.yml | IaC のセキュリティポリシー違反を検出（soft_fail: false） |
+| TypeScript 型チェック | ts-test.yml | `tsc --noEmit` で型エラーを検出 |
+| Jest ユニットテスト | ts-test.yml | 26 件の純粋関数テスト（カバレッジ付き） |
 
 ### セキュリティ対応（Terraform で修正した内容）
 
