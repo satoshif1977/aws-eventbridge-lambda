@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-06-16
+
+### Changed
+- actions/checkout v4 -> v6
+- actions/setup-node v4 -> v6
+- codecov/codecov-action v6 -> v7
+
 ## [1.4.0] - 2026-05-27
 
 ### Fixed
