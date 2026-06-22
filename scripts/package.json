@@ -1,0 +1,15 @@
+{
+  "name": "aws-eventbridge-lambda-scripts",
+  "version": "1.0.0",
+  "description": "EventBridge event validation utilities for aws-eventbridge-lambda",
+  "scripts": {
+    "test": "jest",
+    "test:coverage": "jest --coverage"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
+  },
+  "jest": {
+    "testEnvironment": "node"
+  }
+}
