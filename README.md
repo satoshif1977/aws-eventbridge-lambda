@@ -2,11 +2,13 @@
 
 ![CI](https://github.com/satoshif1977/aws-eventbridge-lambda/actions/workflows/terraform-ci.yml/badge.svg)
 ![TS Test](https://github.com/satoshif1977/aws-eventbridge-lambda/actions/workflows/ts-test.yml/badge.svg)
+![JS Test](https://github.com/satoshif1977/aws-eventbridge-lambda/actions/workflows/js-test.yml/badge.svg)
 ![Terraform](https://img.shields.io/badge/Terraform-623CE4?style=flat&logo=terraform&logoColor=white)
 ![AWS](https://img.shields.io/badge/AWS-232F3E?style=flat&logo=amazon-aws&logoColor=white)
 ![Python](https://img.shields.io/badge/Python-3776AB?style=flat&logo=python&logoColor=white)
 ![Go](https://img.shields.io/badge/Go-00ADD8?style=flat&logo=go&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=flat&logo=typescript&logoColor=white)
+![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?style=flat&logo=javascript&logoColor=black)
 ![Claude Code](https://img.shields.io/badge/Built%20with-Claude%20Code-orange?logo=anthropic)
 ![Claude Cowork](https://img.shields.io/badge/Daily%20Use-Claude%20Cowork-blueviolet?logo=anthropic)
 ![Claude Skills](https://img.shields.io/badge/Custom-Skills%20Configured-green?logo=anthropic)
@@ -134,6 +136,10 @@ aws-eventbridge-lambda/
 │   ├── eventbridge/             # EventBridge ルール + Lambda 実行権限
 │   ├── pipes/                   # Pattern C: EventBridge Pipes + SQS + IAM
 │   └── s3/                      # S3 バケット + EventBridge 通知設定
+├── scripts/                     # JavaScript ユーティリティ
+│   ├── validate-event.js        # EventBridge イベントバリデーター
+│   ├── validate-event.test.js   # Jest テスト（19 件）
+│   └── package.json
 ├── environments/
 │   └── dev/
 │       ├── main.tf              # モジュール統合 + DynamoDB
@@ -429,7 +435,8 @@ GitHub Actions で Terraform の静的解析（Checkov）を自動実行して�
 | terraform validate | terraform-ci.yml | 構文・参照エラーの検出 |
 | Checkov セキュリティスキャン | terraform-ci.yml | IaC のセキュリティポリシー違反を検出（soft_fail: false） |
 | TypeScript 型チェック | ts-test.yml | `tsc --noEmit` で型エラーを検出 |
-| Jest ユニットテスト | ts-test.yml | 26 件の純粋関数テスト（カバレッジ付き） |
+| Jest ユニットテスト（TS） | ts-test.yml | 26 件の純粋関数テスト（カバレッジ付き） |
+| Jest ユニットテスト（JS） | js-test.yml | 19 件のイベントバリデーションテスト |
 
 ### セキュリティ対応（Terraform で修正した内容）
 
