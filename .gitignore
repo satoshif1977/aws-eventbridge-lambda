@@ -34,3 +34,7 @@ test.txt
 
 # Go ビルド成果物（バイナリは除外・go.sum はコミット対象）
 lambda_go/*/bootstrap
+
+# Node.js
+node_modules/
+dist/
