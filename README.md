@@ -1,6 +1,7 @@
 # aws-eventbridge-lambda
 
 ![CI](https://github.com/satoshif1977/aws-eventbridge-lambda/actions/workflows/terraform-ci.yml/badge.svg)
+![Go Test](https://github.com/satoshif1977/aws-eventbridge-lambda/actions/workflows/go-test.yml/badge.svg)
 ![TS Test](https://github.com/satoshif1977/aws-eventbridge-lambda/actions/workflows/ts-test.yml/badge.svg)
 ![JS Test](https://github.com/satoshif1977/aws-eventbridge-lambda/actions/workflows/js-test.yml/badge.svg)
 ![Terraform](https://img.shields.io/badge/Terraform-623CE4?style=flat&logo=terraform&logoColor=white)
@@ -401,6 +402,16 @@ pytest lambda_src/ -v
 | `lambda_src/processor/test_index.py` | 8 件 | 正常系（200・processed_key）/ DynamoDB 書き込み内容 / バリデーション（400）/ 日本語ファイル名 / エラー伝播 |
 | **合計** | **16 件** | |
 
+### Go ユニットテスト（AWS 接続不要）
+
+`lambda_go/` の scheduler・processor は go test でローカル実行できます。AWS 接続は不要です。
+
+```bash
+cd lambda_go
+go test ./... -v
+# 28 件：scheduler（S3 イベントパース・buildPK 等）+ processor（validateEvent・buildPK 等）
+```
+
 ### TypeScript ユニットテスト（AWS 接続不要）
 
 `lambda_ts/` の enricher は Jest でローカル実行できます。AWS 接続は不要です。
@@ -434,6 +445,7 @@ GitHub Actions で Terraform の静的解析（Checkov）を自動実行して�
 | terraform fmt | terraform-ci.yml | フォーマット違反の検出 |
 | terraform validate | terraform-ci.yml | 構文・参照エラーの検出 |
 | Checkov セキュリティスキャン | terraform-ci.yml | IaC のセキュリティポリシー違反を検出（soft_fail: false） |
+| Go ユニットテスト | go-test.yml | go vet + scheduler/processor 合計 28 件（AWS 接続不要） |
 | TypeScript 型チェック | ts-test.yml | `tsc --noEmit` で型エラーを検出 |
 | Jest ユニットテスト（TS） | ts-test.yml | 26 件の純粋関数テスト（カバレッジ付き） |
 | Jest ユニットテスト（JS） | js-test.yml | 19 件のイベントバリデーションテスト |
