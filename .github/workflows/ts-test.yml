@@ -2,10 +2,12 @@ name: TypeScript Test
 
 on:
   push:
+    branches: [master]
     paths:
       - 'lambda_ts/**'
       - '.github/workflows/ts-test.yml'
   pull_request:
+    branches: [master]
     paths:
       - 'lambda_ts/**'
       - '.github/workflows/ts-test.yml'
@@ -24,7 +26,7 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
           cache-dependency-path: lambda_ts/package-lock.json
 
