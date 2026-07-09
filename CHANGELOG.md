@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-07-10
+
+### Added
+- `lambda_ts/enricher/` TypeScript ユニットテスト 9 件 → 44 件に拡充（詳細ケース・境界値・エラー系追加）
+
+### Fixed
+- pytest 収集エラー修正（`lambda/` 配下のモジュール衝突を解消）
+
+### Changed
+- CI: `ts-test.yml` / `js-test.yml` に `branches: [master]` を追加・Node.js 20 → 22 に統一
+- Dependabot: `actions/setup-node` v4 → v6・`actions/checkout` v4 → v7
+
 ## [1.5.0] - 2026-06-16
 
 ### Changed
