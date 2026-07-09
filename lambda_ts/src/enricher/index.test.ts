@@ -100,4 +100,100 @@ describe('handler - 配列イベント', () => {
     expect(result.file_type).toBe('unknown');
     expect(result.priority).toBe('normal');
   });
+
+  it('配列の 2 番目以降の要素は無視される', () => {
+    const result = handler([
+      { key: 'first.csv', size: 100 },
+      { key: 'second.json', size: 200 },
+    ]);
+    expect(result.file_type).toBe('csv');
+  });
+});
+
+// ── detectFileType / 多重拡張子・追加ケース ────────────────────────
+
+describe('detectFileType / 多重拡張子・追加', () => {
+  it.each([
+    ['archive.tar.gz', 'archive'],        // 最後の拡張子 .gz → archive
+    ['report.2024.csv', 'csv'],           // 数字を含む名前でも最後の拡張子が優先
+    ['CONFIG.JSON', 'json'],              // 大文字 .JSON → 小文字化して json
+    ['logs/app.LOG', 'log'],              // 大文字 .LOG → log
+    ['backup/2024.01.01.xml', 'xml'],     // 日付形式ファイル名でも最後の拡張子
+  ])('detectFileType("%s") → "%s"', (key, expected) => {
+    expect(detectFileType(key)).toBe(expected);
+  });
+});
+
+// ── detectPriority / 境界値追加 ──────────────────────────────────
+
+describe('detectPriority / 境界値追加', () => {
+  it.each([
+    [-1, 'normal'],                     // 負数は normal
+    [Number.MAX_SAFE_INTEGER, 'high'],  // 最大整数は high
+    [1_000_000 - 1, 'normal'],          // 閾値 -1 → normal
+  ])('detectPriority(%d) → "%s"', (size, expected) => {
+    expect(detectPriority(size)).toBe(expected);
+  });
+});
+
+// ── nowJST / フォーマット詳細 ─────────────────────────────────────
+
+describe('nowJST / フォーマット詳細', () => {
+  it('戻り値の文字数が 25 文字', () => {
+    expect(nowJST()).toHaveLength(25);
+  });
+
+  it('日付部分が有効な日付である', () => {
+    const jst = nowJST();
+    const datePart = jst.split('T')[0];
+    expect(isNaN(new Date(datePart).getTime())).toBe(false);
+  });
+});
+
+// ── handler / 追加エッジケース ────────────────────────────────────
+
+describe('handler - 追加エッジケース', () => {
+  it('size=0 のとき priority が normal', () => {
+    const result = handler({ key: 'empty.csv', size: 0 });
+    expect(result.priority).toBe('normal');
+  });
+
+  it('size が未指定のとき priority が normal', () => {
+    const result = handler({ key: 'data.json' });
+    expect(result.priority).toBe('normal');
+  });
+
+  it('多重拡張子の最後の拡張子が file_type になる', () => {
+    const result = handler({ key: 'backup.tar.gz', size: 100 });
+    expect(result.file_type).toBe('archive');
+  });
+
+  it('既存の file_type フィールドは新しい値で上書きされる', () => {
+    const result = handler({ key: 'data.csv', size: 100, file_type: 'old-type' });
+    expect(result.file_type).toBe('csv');
+  });
+
+  it('enriched_at の文字数が 25 である', () => {
+    const result = handler({ key: 'test.log', size: 0 });
+    expect(result.enriched_at).toHaveLength(25);
+  });
+
+  it('複数の追加フィールドが全て保持される', () => {
+    const result = handler({
+      key: 'x.txt',
+      size: 50,
+      bucket: 'my-bucket',
+      region: 'ap-northeast-1',
+      userId: 'u123',
+    });
+    expect(result.bucket).toBe('my-bucket');
+    expect(result.region).toBe('ap-northeast-1');
+    expect(result.userId).toBe('u123');
+  });
+
+  it('key が存在しない場合 file_type が unknown で priority が normal', () => {
+    const result = handler({ size: 500 });
+    expect(result.file_type).toBe('unknown');
+    expect(result.priority).toBe('normal');
+  });
 });
