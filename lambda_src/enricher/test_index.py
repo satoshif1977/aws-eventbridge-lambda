@@ -73,6 +73,9 @@ class TestDetectPriority:
     def test_大きなファイルはhigh(self):
         assert _detect_priority(1_000_000_000) == "high"  # 1GB
 
+    def test_負の値はnormal(self):
+        assert _detect_priority(-1) == "normal"
+
 
 # ── lambda_handler テスト ─────────────────────────────────────
 
@@ -136,3 +139,11 @@ class TestLambdaHandler:
         # int("2000000") = 2000000 > 1000000 → high
         assert result["priority"] == "high"
         assert result["file_type"] == "log"
+
+    def test_keyがない場合はunknownのfile_type(self):
+        result = lambda_handler({"size": 512}, make_context())
+        assert result["file_type"] == "unknown"
+
+    def test_sizeがない場合はnormalの優先度(self):
+        result = lambda_handler({"key": "data.csv"}, make_context())
+        assert result["priority"] == "normal"
