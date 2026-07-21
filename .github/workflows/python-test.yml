@@ -1,0 +1,48 @@
+name: Python Test
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'lambda_src/**'
+      - '.github/workflows/python-test.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'lambda_src/**'
+      - '.github/workflows/python-test.yml'
+
+jobs:
+  pytest:
+    name: pytest（Lambda ユニットテスト）
+    runs-on: ubuntu-latest
+
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install boto3 pytest pytest-cov
+
+      - name: pytest – enricher
+        run: pytest lambda_src/enricher/ -v --tb=short --cov=lambda_src/enricher --cov-report=xml:coverage-enricher.xml
+
+      - name: pytest – processor
+        run: pytest lambda_src/processor/ -v --tb=short --cov=lambda_src/processor --cov-report=xml:coverage-processor.xml
+
+      - name: pytest – scheduler
+        run: pytest lambda_src/scheduler/ -v --tb=short --cov=lambda_src/scheduler --cov-report=xml:coverage-scheduler.xml
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage-enricher.xml,coverage-processor.xml,coverage-scheduler.xml
+          flags: python
+          fail_ci_if_error: false
