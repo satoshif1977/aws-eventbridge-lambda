@@ -46,6 +46,9 @@ jobs:
       - name: go test
         run: go test ./... -v -count=1 -coverprofile=coverage.out -covermode=atomic
 
+      - name: Race 検出（data race・goroutine 競合）
+        run: go test -race ./... -count=1
+
       - name: ベンチマーク（回帰検知用・1回のみ）
         run: go test ./... -bench=. -benchtime=1x -run=^$ 2>&1 | tee bench.txt
       - name: Upload coverage to Codecov
