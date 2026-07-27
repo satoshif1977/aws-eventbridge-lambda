@@ -40,7 +40,7 @@ jobs:
         run: pytest lambda_src/scheduler/ -v --tb=short --cov=lambda_src/scheduler --cov-report=xml:coverage-scheduler.xml
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: coverage-enricher.xml,coverage-processor.xml,coverage-scheduler.xml
