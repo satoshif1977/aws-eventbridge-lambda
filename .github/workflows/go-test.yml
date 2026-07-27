@@ -37,8 +37,17 @@ jobs:
       - name: go vet（静的解析）
         run: go vet ./...
 
+      - name: Lambda ビルド確認（linux/arm64）
+        run: |
+          for pkg in processor scheduler; do
+            GOOS=linux GOARCH=arm64 go build -o /dev/null ./$pkg/
+          done
+
       - name: go test
         run: go test ./... -v -count=1 -coverprofile=coverage.out -covermode=atomic
+
+      - name: ベンチマーク（回帰検知用・1回のみ）
+        run: go test ./... -bench=. -benchtime=1x -run=^$ 2>&1 | tee bench.txt
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v7
         with:
