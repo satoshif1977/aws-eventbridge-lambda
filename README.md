@@ -1,9 +1,10 @@
 # aws-eventbridge-lambda
 
-![CI](https://github.com/satoshif1977/aws-eventbridge-lambda/actions/workflows/terraform-ci.yml/badge.svg)
-![Go Test](https://github.com/satoshif1977/aws-eventbridge-lambda/actions/workflows/go-test.yml/badge.svg)
-![TS Test](https://github.com/satoshif1977/aws-eventbridge-lambda/actions/workflows/ts-test.yml/badge.svg)
-![JS Test](https://github.com/satoshif1977/aws-eventbridge-lambda/actions/workflows/js-test.yml/badge.svg)
+[![CI](https://github.com/satoshif1977/aws-eventbridge-lambda/actions/workflows/terraform-ci.yml/badge.svg)](https://github.com/satoshif1977/aws-eventbridge-lambda/actions/workflows/terraform-ci.yml)
+[![Python Test](https://github.com/satoshif1977/aws-eventbridge-lambda/actions/workflows/python-test.yml/badge.svg)](https://github.com/satoshif1977/aws-eventbridge-lambda/actions/workflows/python-test.yml)
+[![Go Test](https://github.com/satoshif1977/aws-eventbridge-lambda/actions/workflows/go-test.yml/badge.svg)](https://github.com/satoshif1977/aws-eventbridge-lambda/actions/workflows/go-test.yml)
+[![TS Test](https://github.com/satoshif1977/aws-eventbridge-lambda/actions/workflows/ts-test.yml/badge.svg)](https://github.com/satoshif1977/aws-eventbridge-lambda/actions/workflows/ts-test.yml)
+[![JS Test](https://github.com/satoshif1977/aws-eventbridge-lambda/actions/workflows/js-test.yml/badge.svg)](https://github.com/satoshif1977/aws-eventbridge-lambda/actions/workflows/js-test.yml)
 [![codecov](https://codecov.io/gh/satoshif1977/aws-eventbridge-lambda/graph/badge.svg)](https://codecov.io/gh/satoshif1977/aws-eventbridge-lambda)
 ![Terraform](https://img.shields.io/badge/Terraform-623CE4?style=flat&logo=terraform&logoColor=white)
 ![AWS](https://img.shields.io/badge/AWS-232F3E?style=flat&logo=amazon-aws&logoColor=white)
