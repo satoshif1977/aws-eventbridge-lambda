@@ -10,21 +10,10 @@
  *   TS    : 静的型付け + 型推論・Union 型で priority を明示
  */
 
-// ── 型定義 ────────────────────────────────────────────────────────
+// ── 型定義（types.ts から re-export）────────────────────────────────
 
-export interface EnricherInput {
-  key?: string;
-  size?: number | string;
-  [key: string]: unknown;
-}
-
-export type Priority = 'high' | 'normal';
-
-export interface EnricherOutput extends EnricherInput {
-  file_type: string;
-  priority: Priority;
-  enriched_at: string;
-}
+import type { EnricherInput, Priority, EnricherOutput } from './types';
+export type { EnricherInput, Priority, EnricherOutput };
 
 // ── 定数 ──────────────────────────────────────────────────────────
 
