@@ -10,55 +10,13 @@
  *   TS    : 静的型付け + 型推論・Union 型で priority を明示
  */
 
-// ── 型定義（types.ts から re-export）────────────────────────────────
+// ── 型・ヘルパーを re-export（テストファイルが "./index" から import しているため）──
 
-import type { EnricherInput, Priority, EnricherOutput } from './types';
-export type { EnricherInput, Priority, EnricherOutput };
+import type { EnricherInput, EnricherOutput } from './types';
+export type { EnricherInput, Priority, EnricherOutput } from './types';
+export { detectFileType, detectPriority, nowJST } from './helpers';
 
-// ── 定数 ──────────────────────────────────────────────────────────
-
-/** ファイルサイズによる優先度判定しきい値（1MB） */
-const HIGH_PRIORITY_THRESHOLD_BYTES = 1_000_000;
-
-/** 拡張子 → ファイル種別マッピング */
-const EXT_TO_TYPE: Record<string, string> = {
-  csv: 'csv',
-  json: 'json',
-  xml: 'xml',
-  txt: 'text',
-  log: 'log',
-  zip: 'archive',
-  gz: 'archive',
-};
-
-// ── ヘルパー関数 ──────────────────────────────────────────────────
-
-/**
- * S3 オブジェクトキーから拡張子を取得してファイル種別を返す。
- * 拡張子なし → "unknown"、未登録拡張子 → 拡張子をそのまま返す。
- */
-export function detectFileType(key: string): string {
-  if (!key.includes('.')) return 'unknown';
-  const ext = key.split('.').pop()!.toLowerCase();
-  return EXT_TO_TYPE[ext] ?? ext;
-}
-
-/**
- * ファイルサイズに基づいて処理優先度を判定する。
- * 1MB 以上 → "high"、未満 → "normal"
- */
-export function detectPriority(size: number): Priority {
-  return size >= HIGH_PRIORITY_THRESHOLD_BYTES ? 'high' : 'normal';
-}
-
-/**
- * JST（UTC+9）の現在時刻を ISO 8601 形式で返す。
- */
-export function nowJST(): string {
-  const now = new Date();
-  const jst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-  return jst.toISOString().replace('Z', '+09:00').slice(0, 19) + '+09:00';
-}
+import { detectFileType, detectPriority, nowJST } from './helpers';
 
 // ── Lambda ハンドラー ─────────────────────────────────────────────
 
