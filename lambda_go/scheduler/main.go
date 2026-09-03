@@ -21,6 +21,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/satoshif1977/aws-eventbridge-lambda/internal/awsretry"
 )
 
 // ── レポート・応答構造体 ──────────────────────────────────────
@@ -45,6 +46,10 @@ type Response struct {
 // ── AWS クライアント（init で初期化・コールドスタート時のみ実行）──
 
 var s3Client *s3.Client
+
+// リトライ実行器。スロットリングと一時的なサーバエラーに備える。
+// テストからは Sleep / Rand を差し替えて実待機ゼロで検証する。
+var retrier = awsretry.NewRetrier()
 
 func init() {
 	cfg, err := config.LoadDefaultConfig(context.Background())
@@ -94,11 +99,17 @@ func handler(ctx context.Context, _ json.RawMessage) (Response, error) {
 
 	// ── S3 に保存 ───────────────────────────────────────────
 	contentType := "application/json"
-	_, err = s3Client.PutObject(ctx, &s3.PutObjectInput{
-		Bucket:      aws.String(bucketName),
-		Key:         aws.String(reportKey),
-		Body:        bytes.NewReader(body),
-		ContentType: aws.String(contentType),
+	err = retrier.Do(ctx, "PutObject", func(c context.Context) error {
+		// bytes.Reader は初回の送信で読み切られるため、
+		// リトライのたびにクロージャの内側で作り直す。
+		// 外で1つだけ作ると2回目以降が空ボディになる。
+		_, putErr := s3Client.PutObject(c, &s3.PutObjectInput{
+			Bucket:      aws.String(bucketName),
+			Key:         aws.String(reportKey),
+			Body:        bytes.NewReader(body),
+			ContentType: aws.String(contentType),
+		})
+		return putErr
 	})
 	if err != nil {
 		return Response{}, fmt.Errorf("S3 書き込み失敗: %w", err)

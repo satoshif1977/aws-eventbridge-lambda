@@ -8,6 +8,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.27.27
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.34.7
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.57.1
+	github.com/aws/smithy-go v1.20.4
 )
 
 require (
@@ -26,6 +27,5 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sso v1.22.4 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.26.4 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.30.3 // indirect
-	github.com/aws/smithy-go v1.20.4 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 )
