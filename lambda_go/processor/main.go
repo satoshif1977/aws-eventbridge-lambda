@@ -20,6 +20,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/satoshif1977/aws-eventbridge-lambda/internal/awsretry"
 )
 
 // ── EventBridge S3 イベント構造体 ────────────────────────────
@@ -53,6 +54,10 @@ type Response struct {
 // ── AWS クライアント（init で初期化・コールドスタート時のみ実行）──
 
 var ddbClient *dynamodb.Client
+
+// リトライ実行器。スロットリングと一時的なサーバエラーに備える。
+// テストからは Sleep / Rand を差し替えて実待機ゼロで検証する。
+var retrier = awsretry.NewRetrier()
 
 func init() {
 	cfg, err := config.LoadDefaultConfig(context.Background())
@@ -104,16 +109,19 @@ func handler(ctx context.Context, event S3EventBridgeEvent) (Response, error) {
 	tableName := os.Getenv("DYNAMODB_TABLE_NAME")
 
 	// ── DynamoDB に記録 ─────────────────────────────────────
-	_, err := ddbClient.PutItem(ctx, &dynamodb.PutItemInput{
-		TableName: aws.String(tableName),
-		Item: map[string]types.AttributeValue{
-			"pk":           &types.AttributeValueMemberS{Value: pk},
-			"processed_at": &types.AttributeValueMemberS{Value: processedAt},
-			"bucket_name":  &types.AttributeValueMemberS{Value: bucketName},
-			"object_key":   &types.AttributeValueMemberS{Value: objectKey},
-			"object_size":  &types.AttributeValueMemberN{Value: fmt.Sprintf("%d", objectSize)},
-			"event_time":   &types.AttributeValueMemberS{Value: event.Time},
-		},
+	err := retrier.Do(ctx, "PutItem", func(c context.Context) error {
+		_, putErr := ddbClient.PutItem(c, &dynamodb.PutItemInput{
+			TableName: aws.String(tableName),
+			Item: map[string]types.AttributeValue{
+				"pk":           &types.AttributeValueMemberS{Value: pk},
+				"processed_at": &types.AttributeValueMemberS{Value: processedAt},
+				"bucket_name":  &types.AttributeValueMemberS{Value: bucketName},
+				"object_key":   &types.AttributeValueMemberS{Value: objectKey},
+				"object_size":  &types.AttributeValueMemberN{Value: fmt.Sprintf("%d", objectSize)},
+				"event_time":   &types.AttributeValueMemberS{Value: event.Time},
+			},
+		})
+		return putErr
 	})
 	if err != nil {
 		return Response{}, fmt.Errorf("DynamoDB 書き込み失敗: %w", err)
