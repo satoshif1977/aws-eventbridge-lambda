@@ -198,12 +198,23 @@ func ContextSleep(ctx context.Context, d time.Duration) error {
 
 // ── メイン処理 ────────────────────────────────────────────────
 
-// Retrier はリトライ実行器。Sleep / Rand は nil なら既定実装を使う。
+// Retrier はリトライ実行器。Sleep / Rand / OnRetry は nil なら既定実装を使う。
 type Retrier struct {
 	Config RetryConfig
 	Sleep  SleepFunc
 	Rand   func() float64
+	// OnRetry はリトライ直前に呼ばれるフック。
+	//
+	// nil の場合は log.Printf による非構造化ログにフォールバックする。
+	// awslog.RetryHook() を渡すと、リトライを 1 行 JSON の warn ログとして残せる
+	// （Logs Insights でリトライ件数を集計できるようになる）。
+	OnRetry RetryHook
 }
+
+// RetryHook はリトライ直前に呼ばれるコールバック。
+//
+// attempt は 1 始まりの試行回数、delay は次の試行までの待機時間、err は発生したエラー。
+type RetryHook func(attempt int, delay time.Duration, err error)
 
 // NewRetrier は既定の設定を持つ Retrier を返す。
 func NewRetrier() Retrier {
@@ -236,8 +247,12 @@ func (r Retrier) Do(ctx context.Context, op string, fn func(context.Context) err
 		}
 
 		delay := ComputeDelay(attempt, cfg, r.Rand)
-		log.Printf("リトライします: op=%s attempt=%d/%d delay=%v err=%v",
-			op, attempt, cfg.MaxAttempts-1, delay, lastErr)
+		if r.OnRetry != nil {
+			r.OnRetry(attempt, delay, lastErr)
+		} else {
+			log.Printf("リトライします: op=%s attempt=%d/%d delay=%v err=%v",
+				op, attempt, cfg.MaxAttempts-1, delay, lastErr)
+		}
 
 		if err := sleep(ctx, delay); err != nil {
 			// 待機中に context がキャンセルされた。元のエラーを保ったまま理由を添える
