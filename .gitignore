@@ -38,3 +38,4 @@ lambda_go/*/bootstrap
 # Node.js
 node_modules/
 dist/
+coverage/
