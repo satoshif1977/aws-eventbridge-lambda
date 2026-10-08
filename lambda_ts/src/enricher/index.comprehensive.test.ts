@@ -177,9 +177,12 @@ describe('handler / 固定時刻統合テスト', () => {
   });
 });
 
-// ── handler / console.log 正確なフォーマット検証 ─────────────────────────────
+// ── handler / 構造化ログの項目検証 ─────────────────────────────
+//
+// logger.ts を通すようになったため、出力は 1 行の JSON になる。
+// 文字列の完全一致ではなく、項目ごとに検証する。
 
-describe('handler / console.log 正確なフォーマット', () => {
+describe('handler / 構造化ログの項目', () => {
   let consoleSpy: jest.SpyInstance;
 
   beforeEach(() => {
@@ -193,25 +196,32 @@ describe('handler / console.log 正確なフォーマット', () => {
   test.each([
     [
       { key: 'data.csv', size: 100 },
-      'エンリッチ完了: key=data.csv file_type=csv priority=normal',
+      { key: 'data.csv', file_type: 'csv', priority: 'normal' },
     ],
     [
       { key: 'big.zip', size: 2_000_000 },
-      'エンリッチ完了: key=big.zip file_type=archive priority=high',
+      { key: 'big.zip', file_type: 'archive', priority: 'high' },
     ],
     [
       { size: 100 },
-      'エンリッチ完了: key= file_type=unknown priority=normal',
+      { key: '', file_type: 'unknown', priority: 'normal' },
     ],
     [
       { key: 'report.json', size: 1_000_000 },
-      'エンリッチ完了: key=report.json file_type=json priority=high',
+      { key: 'report.json', file_type: 'json', priority: 'high' },
     ],
-  ] as [EnricherInput, string][])(
-    'input=%j → log="%s"',
-    (input, expectedLog) => {
+  ] as [EnricherInput, Record<string, string>][])(
+    'input=%j → log=%j',
+    (input, expected) => {
       handler(input);
-      expect(consoleSpy).toHaveBeenCalledWith(expectedLog);
+      const line = String(consoleSpy.mock.calls[0][0]);
+      const entry = JSON.parse(line) as Record<string, unknown>;
+
+      expect(entry.message).toBe('エンリッチ完了');
+      expect(entry.level).toBe('info');
+      for (const [k, v] of Object.entries(expected)) {
+        expect(entry[k]).toBe(v);
+      }
     },
   );
 });
