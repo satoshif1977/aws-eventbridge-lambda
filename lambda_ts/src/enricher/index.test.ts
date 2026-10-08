@@ -3,7 +3,8 @@
  * AWS 接続不要・純粋関数のロジックを Jest で検証する。
  */
 
-import { detectFileType, detectPriority, nowJST, handler } from './index';
+import { detectFileType, detectPriority, nowJST, handler, createHandler } from './index';
+import { createLogger, REDACTED, type LogLevel } from './logger';
 
 // ── detectFileType ────────────────────────────────────────────────
 
@@ -296,9 +297,16 @@ describe('nowJST / Date モック', () => {
   });
 });
 
-// ── handler / console.log スパイ ─────────────────────────────────
+// ── handler / 構造化ログ出力検証 ─────────────────────────────────
+//
+// logger.ts を通すようになったため、出力は 1 行の JSON になる。
+// 文字列の部分一致ではなく、パースして項目を検証する。
 
-describe('handler / console.log 出力検証', () => {
+/** console.log に出た行を JSON としてパースする */
+const parseLogged = (spy: jest.SpyInstance): Record<string, unknown>[] =>
+  spy.mock.calls.map((call) => JSON.parse(String(call[0])) as Record<string, unknown>);
+
+describe('handler / 構造化ログ出力検証', () => {
   let consoleSpy: jest.SpyInstance;
 
   beforeEach(() => {
@@ -312,37 +320,39 @@ describe('handler / console.log 出力検証', () => {
   it('エンリッチ完了ログが出力される', () => {
     handler({ key: 'data.csv', size: 100 });
     expect(consoleSpy).toHaveBeenCalledTimes(1);
-    expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining('エンリッチ完了'),
-    );
+    expect(parseLogged(consoleSpy)[0].message).toBe('エンリッチ完了');
   });
 
   it('ログに key が含まれる', () => {
     handler({ key: 'reports/monthly.json', size: 500 });
-    expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining('key=reports/monthly.json'),
-    );
+    expect(parseLogged(consoleSpy)[0].key).toBe('reports/monthly.json');
   });
 
   it('ログに file_type が含まれる', () => {
     handler({ key: 'data.xml', size: 100 });
-    expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining('file_type=xml'),
-    );
+    expect(parseLogged(consoleSpy)[0].file_type).toBe('xml');
   });
 
   it('ログに priority が含まれる', () => {
     handler({ key: 'big.zip', size: 2_000_000 });
-    expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining('priority=high'),
-    );
+    expect(parseLogged(consoleSpy)[0].priority).toBe('high');
   });
 
-  it('key 未指定時のログに key= が含まれる', () => {
+  it('ログに size が含まれる', () => {
+    handler({ key: 'data.csv', size: 4096 });
+    expect(parseLogged(consoleSpy)[0].size).toBe(4096);
+  });
+
+  it('timestamp と level が付く', () => {
+    handler({ key: 'data.csv', size: 100 });
+    const entry = parseLogged(consoleSpy)[0];
+    expect(entry.level).toBe('info');
+    expect(typeof entry.timestamp).toBe('string');
+  });
+
+  it('key 未指定時も key フィールドが空文字で出る', () => {
     handler({ size: 100 });
-    expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining('key='),
-    );
+    expect(parseLogged(consoleSpy)[0].key).toBe('');
   });
 });
 
@@ -434,5 +444,73 @@ describe('handler / 配列の追加パターン', () => {
   it('配列要素に追加フィールドがあっても保持される', () => {
     const result = handler([{ key: 'data.log', size: 50, source: 'batch' }]);
     expect(result.source).toBe('batch');
+  });
+});
+
+
+// ── logger.ts との結線 ──────────────────────────────────────────
+
+describe('logger.ts との結線', () => {
+  /** 出力行を配列に溜めるロガーを作る */
+  const captureLogger = (level: LogLevel = 'info') => {
+    const lines: string[] = [];
+    return {
+      logger: createLogger({ level, sink: (line) => lines.push(line) }),
+      lines,
+    };
+  };
+
+  it('createHandler に渡したロガーが使われる', () => {
+    const { logger, lines } = captureLogger();
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+
+    createHandler(logger)({ key: 'data.csv', size: 100 });
+
+    expect(lines).toHaveLength(1);
+    // 差し替えたロガーを使うので console には出ない
+    expect(consoleSpy).not.toHaveBeenCalled();
+    consoleSpy.mockRestore();
+  });
+
+  it('LOG_LEVEL=warn 相当ではエンリッチ完了ログが出ない', () => {
+    const { logger, lines } = captureLogger('warn');
+    createHandler(logger)({ key: 'data.csv', size: 100 });
+    expect(lines).toHaveLength(0);
+  });
+
+  it('LOG_LEVEL=silent では何も出ない', () => {
+    const { logger, lines } = captureLogger('silent');
+    createHandler(logger)({ key: 'data.csv', size: 100 });
+    expect(lines).toHaveLength(0);
+  });
+
+  it('機密情報を含むキーはマスクされる', () => {
+    const { logger, lines } = captureLogger();
+    // child で共通フィールドに機密を混ぜても落ちないことを確認する
+    const child = logger.child({ apiKey: 'super-secret-value' });
+    createHandler(child)({ key: 'data.csv', size: 100 });
+
+    const entry = JSON.parse(lines[0]) as Record<string, unknown>;
+    expect(entry.apiKey).toBe(REDACTED);
+    expect(lines[0]).not.toContain('super-secret-value');
+  });
+
+  it('戻り値はロガーを差し替えても変わらない', () => {
+    const { logger } = captureLogger();
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+
+    const viaDefault = handler({ key: 'big.zip', size: 2_000_000 });
+    const viaInjected = createHandler(logger)({ key: 'big.zip', size: 2_000_000 });
+
+    expect(viaInjected.file_type).toBe(viaDefault.file_type);
+    expect(viaInjected.priority).toBe(viaDefault.priority);
+    consoleSpy.mockRestore();
+  });
+
+  it('出力は 1 行の JSON として必ずパースできる', () => {
+    const { logger, lines } = captureLogger();
+    createHandler(logger)({ key: 'a/b/c.csv', size: 1 });
+    expect(lines[0]).not.toContain('\n');
+    expect(() => JSON.parse(lines[0])).not.toThrow();
   });
 });
