@@ -13,7 +13,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"time"
 
@@ -21,6 +21,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/satoshif1977/aws-eventbridge-lambda/internal/awslog"
 	"github.com/satoshif1977/aws-eventbridge-lambda/internal/awsretry"
 )
 
@@ -47,14 +48,29 @@ type Response struct {
 
 var s3Client *s3.Client
 
+// 構造化ロガー。LOG_LEVEL で出力レベルを制御する。
+// awslog を通すことで、キー名に応じた機密値のマスキングが効く。
+var logger = awslog.NewFromEnv(awslog.Options{})
+
 // リトライ実行器。スロットリングと一時的なサーバエラーに備える。
 // テストからは Sleep / Rand を差し替えて実待機ゼロで検証する。
-var retrier = awsretry.NewRetrier()
+//
+// OnRetry に awslog.RetryHook を挿すことで、リトライの発生が
+// warn の 1 行 JSON として残り、Logs Insights で件数を追える。
+var retrier = newRetrier(logger)
+
+// newRetrier はロガーと結線済みの Retrier を返す。
+func newRetrier(l *slog.Logger) awsretry.Retrier {
+	r := awsretry.NewRetrier()
+	r.OnRetry = awslog.RetryHook(l, "S3")
+	return r
+}
 
 func init() {
 	cfg, err := config.LoadDefaultConfig(context.Background())
 	if err != nil {
-		log.Fatalf("AWS config 読み込み失敗: %v", err)
+		logger.Error("AWS config の読み込みに失敗しました", "error", err.Error())
+		os.Exit(1)
 	}
 	s3Client = s3.NewFromConfig(cfg)
 }
@@ -77,7 +93,7 @@ func handler(ctx context.Context, _ json.RawMessage) (Response, error) {
 	now := time.Now().In(jst)
 	timestampStr := now.Format("2006-01-02T15:04:05+09:00")
 
-	log.Printf("スケジュール実行開始: %s", timestampStr)
+	logger.Info("スケジュール実行を開始しました", "timestamp", timestampStr)
 
 	bucketName := os.Getenv("REPORT_BUCKET_NAME")
 	functionName := os.Getenv("AWS_LAMBDA_FUNCTION_NAME")
@@ -112,10 +128,13 @@ func handler(ctx context.Context, _ json.RawMessage) (Response, error) {
 		return putErr
 	})
 	if err != nil {
+		logger.Error("S3 への書き込みに失敗しました",
+			"bucket", bucketName, "key", reportKey, "error", err.Error())
 		return Response{}, fmt.Errorf("S3 書き込み失敗: %w", err)
 	}
 
-	log.Printf("レポートを S3 に保存しました: s3://%s/%s", bucketName, reportKey)
+	logger.Info("レポートを S3 へ保存しました",
+		"bucket", bucketName, "key", reportKey, "sizeBytes", len(body))
 
 	return Response{
 		StatusCode:  200,

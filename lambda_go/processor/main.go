@@ -11,7 +11,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"time"
 
@@ -20,6 +20,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/satoshif1977/aws-eventbridge-lambda/internal/awslog"
 	"github.com/satoshif1977/aws-eventbridge-lambda/internal/awsretry"
 )
 
@@ -55,14 +56,29 @@ type Response struct {
 
 var ddbClient *dynamodb.Client
 
+// 構造化ロガー。LOG_LEVEL で出力レベルを制御する。
+// awslog を通すことで、キー名に応じた機密値のマスキングが効く。
+var logger = awslog.NewFromEnv(awslog.Options{})
+
 // リトライ実行器。スロットリングと一時的なサーバエラーに備える。
 // テストからは Sleep / Rand を差し替えて実待機ゼロで検証する。
-var retrier = awsretry.NewRetrier()
+//
+// OnRetry に awslog.RetryHook を挿すことで、リトライの発生が
+// warn の 1 行 JSON として残り、Logs Insights で件数を追える。
+var retrier = newRetrier(logger)
+
+// newRetrier はロガーと結線済みの Retrier を返す。
+func newRetrier(l *slog.Logger) awsretry.Retrier {
+	r := awsretry.NewRetrier()
+	r.OnRetry = awslog.RetryHook(l, "DynamoDB")
+	return r
+}
 
 func init() {
 	cfg, err := config.LoadDefaultConfig(context.Background())
 	if err != nil {
-		log.Fatalf("AWS config 読み込み失敗: %v", err)
+		logger.Error("AWS config の読み込みに失敗しました", "error", err.Error())
+		os.Exit(1)
 	}
 	ddbClient = dynamodb.NewFromConfig(cfg)
 }
@@ -83,10 +99,11 @@ func buildPK(bucket, key string) string {
 // ── ハンドラー ────────────────────────────────────────────────
 
 func handler(ctx context.Context, event S3EventBridgeEvent) (Response, error) {
-	log.Printf("S3 イベント処理開始: %s", event.Time)
+	logger.Info("S3 イベントの処理を開始しました", "eventTime", event.Time)
 
 	if !validateEvent(event) {
-		log.Println("バケット名またはオブジェクトキーが取得できませんでした")
+		logger.Warn("イベントの構造が不正です",
+			"reason", "バケット名またはオブジェクトキーが取得できません")
 		return Response{
 			StatusCode: 400,
 			Status:     "error",
@@ -98,7 +115,8 @@ func handler(ctx context.Context, event S3EventBridgeEvent) (Response, error) {
 	objectKey := event.Detail.Object.Key
 	objectSize := event.Detail.Object.Size
 
-	log.Printf("処理対象: s3://%s/%s (%d bytes)", bucketName, objectKey, objectSize)
+	reqLogger := logger.With("bucket", bucketName, "key", objectKey)
+	reqLogger.Info("処理対象を特定しました", "sizeBytes", objectSize)
 
 	// JST タイムゾーン
 	jst := time.FixedZone("JST", 9*60*60)
@@ -124,10 +142,11 @@ func handler(ctx context.Context, event S3EventBridgeEvent) (Response, error) {
 		return putErr
 	})
 	if err != nil {
+		reqLogger.Error("DynamoDB への書き込みに失敗しました", "error", err.Error())
 		return Response{}, fmt.Errorf("DynamoDB 書き込み失敗: %w", err)
 	}
 
-	log.Printf("DynamoDB に記録しました: pk=%s", pk)
+	reqLogger.Info("DynamoDB へ記録しました", "pk", pk)
 
 	return Response{
 		StatusCode:     200,
