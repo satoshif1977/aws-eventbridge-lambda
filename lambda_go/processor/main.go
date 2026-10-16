@@ -54,7 +54,17 @@ type Response struct {
 
 // ── AWS クライアント（init で初期化・コールドスタート時のみ実行）──
 
-var ddbClient *dynamodb.Client
+// DDBPutter は DynamoDB への書き込みを抽象化する。
+// テストからモックを注入して、ログ出力まで検証できるようにする。
+type DDBPutter interface {
+	PutItem(
+		ctx context.Context,
+		params *dynamodb.PutItemInput,
+		optFns ...func(*dynamodb.Options),
+	) (*dynamodb.PutItemOutput, error)
+}
+
+var ddbClient DDBPutter
 
 // 構造化ロガー。LOG_LEVEL で出力レベルを制御する。
 // awslog を通すことで、キー名に応じた機密値のマスキングが効く。
@@ -98,7 +108,17 @@ func buildPK(bucket, key string) string {
 
 // ── ハンドラー ────────────────────────────────────────────────
 
-func handler(ctx context.Context, event S3EventBridgeEvent) (Response, error) {
+// runHandler は S3 イベント 1 件を処理する。
+//
+// AWS クライアント・リトライ実行器・ロガーを引数で受け取ることで、
+// handler から依存の生成を切り離し、出力まで検証できるようにしている。
+func runHandler(
+	ctx context.Context,
+	event S3EventBridgeEvent,
+	client DDBPutter,
+	r awsretry.Retrier,
+	logger *slog.Logger,
+) (Response, error) {
 	logger.Info("S3 イベントの処理を開始しました", "eventTime", event.Time)
 
 	if !validateEvent(event) {
@@ -127,8 +147,8 @@ func handler(ctx context.Context, event S3EventBridgeEvent) (Response, error) {
 	tableName := os.Getenv("DYNAMODB_TABLE_NAME")
 
 	// ── DynamoDB に記録 ─────────────────────────────────────
-	err := retrier.Do(ctx, "PutItem", func(c context.Context) error {
-		_, putErr := ddbClient.PutItem(c, &dynamodb.PutItemInput{
+	err := r.Do(ctx, "PutItem", func(c context.Context) error {
+		_, putErr := client.PutItem(c, &dynamodb.PutItemInput{
 			TableName: aws.String(tableName),
 			Item: map[string]types.AttributeValue{
 				"pk":           &types.AttributeValueMemberS{Value: pk},
@@ -154,6 +174,11 @@ func handler(ctx context.Context, event S3EventBridgeEvent) (Response, error) {
 		ProcessedCount: 1,
 		ProcessedKey:   objectKey,
 	}, nil
+}
+
+// handler は Lambda のエントリポイント。パッケージ変数を runHandler へ渡すだけ。
+func handler(ctx context.Context, event S3EventBridgeEvent) (Response, error) {
+	return runHandler(ctx, event, ddbClient, retrier, logger)
 }
 
 func main() {

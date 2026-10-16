@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/smithy-go"
 	"github.com/satoshif1977/aws-eventbridge-lambda/internal/awslog"
 )
@@ -139,5 +140,118 @@ func Testロガーは機密キーをマスキングする(t *testing.T) {
 	}
 	if recs[0]["bucket"] != "my-bucket" {
 		t.Errorf("bucket = %v, want my-bucket（機密でない値は残すべき）", recs[0]["bucket"])
+	}
+}
+
+// ── runHandler ────────────────────────────────────────────────
+
+// mockDDB は DDBPutter のテスト実装。
+type mockDDB struct {
+	calls int
+	err   error
+}
+
+func (m *mockDDB) PutItem(
+	_ context.Context,
+	_ *dynamodb.PutItemInput,
+	_ ...func(*dynamodb.Options),
+) (*dynamodb.PutItemOutput, error) {
+	m.calls++
+	return &dynamodb.PutItemOutput{}, m.err
+}
+
+func validS3Event() S3EventBridgeEvent {
+	ev := S3EventBridgeEvent{Time: "2026-10-16T02:00:00Z"}
+	ev.Detail.Bucket.Name = "my-bucket"
+	ev.Detail.Object.Key = "uploads/report.pdf"
+	ev.Detail.Object.Size = 2048
+	return ev
+}
+
+func TestRunHandlerは成功時に構造化ログを出す(t *testing.T) {
+	buf := &bytes.Buffer{}
+	l := awslog.New(awslog.Options{Level: awslog.LevelDebug, Writer: buf})
+	ddb := &mockDDB{}
+
+	resp, err := runHandler(context.Background(), validS3Event(), ddb, newRetrier(l), l)
+	if err != nil {
+		t.Fatalf("想定外のエラー: %v", err)
+	}
+	if resp.StatusCode != 200 || resp.ProcessedCount != 1 {
+		t.Fatalf("resp = %+v", resp)
+	}
+	if ddb.calls != 1 {
+		t.Fatalf("PutItem 呼び出し = %d, want 1", ddb.calls)
+	}
+
+	var started, recorded bool
+	for _, rec := range decodeLines(t, buf) {
+		switch rec["message"] {
+		case "S3 イベントの処理を開始しました":
+			started = true
+		case "DynamoDB へ記録しました":
+			recorded = true
+			if rec["bucket"] != "my-bucket" {
+				t.Errorf("bucket = %v", rec["bucket"])
+			}
+			if rec["key"] != "uploads/report.pdf" {
+				t.Errorf("key = %v", rec["key"])
+			}
+		}
+	}
+	if !started || !recorded {
+		t.Errorf("期待したログが出ていません start=%v recorded=%v", started, recorded)
+	}
+}
+
+func TestRunHandlerは不正イベントをwarnで弾く(t *testing.T) {
+	buf := &bytes.Buffer{}
+	l := awslog.New(awslog.Options{Level: awslog.LevelDebug, Writer: buf})
+	ddb := &mockDDB{}
+
+	resp, err := runHandler(context.Background(), S3EventBridgeEvent{}, ddb, newRetrier(l), l)
+	if err != nil {
+		t.Fatalf("想定外のエラー: %v", err)
+	}
+	if resp.StatusCode != 400 {
+		t.Errorf("StatusCode = %d, want 400", resp.StatusCode)
+	}
+	if ddb.calls != 0 {
+		t.Errorf("不正イベントで PutItem を呼んではいけません: %d", ddb.calls)
+	}
+
+	var warned bool
+	for _, rec := range decodeLines(t, buf) {
+		if rec["message"] == "イベントの構造が不正です" && rec["level"] == "warn" {
+			warned = true
+		}
+	}
+	if !warned {
+		t.Error("warn ログが出ていません")
+	}
+}
+
+func TestRunHandlerは書き込み失敗をerrorで残す(t *testing.T) {
+	buf := &bytes.Buffer{}
+	l := awslog.New(awslog.Options{Level: awslog.LevelDebug, Writer: buf})
+	// リトライ対象外のエラーにして 1 回で打ち切らせる
+	ddb := &mockDDB{err: errors.New("ValidationException")}
+
+	r := newRetrier(l)
+	r.Sleep = func(context.Context, time.Duration) error { return nil }
+
+	_, err := runHandler(context.Background(), validS3Event(), ddb, r, l)
+	if err == nil {
+		t.Fatal("エラーが返るはずです")
+	}
+
+	var logged bool
+	for _, rec := range decodeLines(t, buf) {
+		if rec["message"] == "DynamoDB への書き込みに失敗しました" && rec["level"] == "error" {
+			logged = true
+		}
+	}
+	if !logged {
+		t.Error("失敗が返るだけでログに残っていません")
 	}
 }

@@ -13,6 +13,9 @@ import (
 	"testing"
 	"time"
 
+	"io"
+
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/smithy-go"
 	"github.com/satoshif1977/aws-eventbridge-lambda/internal/awslog"
 )
@@ -139,5 +142,86 @@ func Testロガーは機密キーをマスキングする(t *testing.T) {
 	}
 	if recs[0]["bucket"] != "my-bucket" {
 		t.Errorf("bucket = %v, want my-bucket（機密でない値は残すべき）", recs[0]["bucket"])
+	}
+}
+
+// ── runHandler ────────────────────────────────────────────────
+
+// mockS3 は S3Putter のテスト実装。保存されたボディを保持する。
+type mockS3 struct {
+	calls int
+	body  []byte
+	err   error
+}
+
+func (m *mockS3) PutObject(
+	_ context.Context,
+	params *s3.PutObjectInput,
+	_ ...func(*s3.Options),
+) (*s3.PutObjectOutput, error) {
+	m.calls++
+	if params.Body != nil {
+		b, _ := io.ReadAll(params.Body)
+		m.body = b
+	}
+	return &s3.PutObjectOutput{}, m.err
+}
+
+func TestRunHandlerは成功時に構造化ログを出す(t *testing.T) {
+	buf := &bytes.Buffer{}
+	l := awslog.New(awslog.Options{Level: awslog.LevelDebug, Writer: buf})
+	cli := &mockS3{}
+
+	resp, err := runHandler(context.Background(), cli, newRetrier(l), l)
+	if err != nil {
+		t.Fatalf("想定外のエラー: %v", err)
+	}
+	if resp.StatusCode != 200 {
+		t.Fatalf("resp = %+v", resp)
+	}
+	if cli.calls != 1 {
+		t.Fatalf("PutObject 呼び出し = %d, want 1", cli.calls)
+	}
+	if len(cli.body) == 0 {
+		t.Error("ボディが空です。bytes.Reader の作り直しが効いていない可能性があります")
+	}
+
+	var started, saved bool
+	for _, rec := range decodeLines(t, buf) {
+		switch rec["message"] {
+		case "スケジュール実行を開始しました":
+			started = true
+		case "レポートを S3 へ保存しました":
+			saved = true
+			if rec["key"] == nil {
+				t.Error("key が載っていません")
+			}
+		}
+	}
+	if !started || !saved {
+		t.Errorf("期待したログが出ていません start=%v saved=%v", started, saved)
+	}
+}
+
+func TestRunHandlerは書き込み失敗をerrorで残す(t *testing.T) {
+	buf := &bytes.Buffer{}
+	l := awslog.New(awslog.Options{Level: awslog.LevelDebug, Writer: buf})
+	cli := &mockS3{err: errors.New("AccessDenied")}
+
+	r := newRetrier(l)
+	r.Sleep = func(context.Context, time.Duration) error { return nil }
+
+	if _, err := runHandler(context.Background(), cli, r, l); err == nil {
+		t.Fatal("エラーが返るはずです")
+	}
+
+	var logged bool
+	for _, rec := range decodeLines(t, buf) {
+		if rec["message"] == "S3 への書き込みに失敗しました" && rec["level"] == "error" {
+			logged = true
+		}
+	}
+	if !logged {
+		t.Error("失敗が返るだけでログに残っていません")
 	}
 }

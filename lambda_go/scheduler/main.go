@@ -46,7 +46,17 @@ type Response struct {
 
 // ── AWS クライアント（init で初期化・コールドスタート時のみ実行）──
 
-var s3Client *s3.Client
+// S3Putter は S3 への書き込みを抽象化する。
+// テストからモックを注入して、ログ出力まで検証できるようにする。
+type S3Putter interface {
+	PutObject(
+		ctx context.Context,
+		params *s3.PutObjectInput,
+		optFns ...func(*s3.Options),
+	) (*s3.PutObjectOutput, error)
+}
+
+var s3Client S3Putter
 
 // 構造化ロガー。LOG_LEVEL で出力レベルを制御する。
 // awslog を通すことで、キー名に応じた機密値のマスキングが効く。
@@ -87,7 +97,16 @@ func generateReportKey(t time.Time) string {
 
 // handler は EventBridge スケジュールイベントを受け取り、日次レポートを S3 に保存する。
 // Go の json.RawMessage を使い、EventBridge スケジュールの任意のペイロードを受け付ける。
-func handler(ctx context.Context, _ json.RawMessage) (Response, error) {
+// runHandler は日次レポートを生成して S3 に保存する。
+//
+// AWS クライアント・リトライ実行器・ロガーを引数で受け取ることで、
+// handler から依存の生成を切り離し、出力まで検証できるようにしている。
+func runHandler(
+	ctx context.Context,
+	client S3Putter,
+	r awsretry.Retrier,
+	logger *slog.Logger,
+) (Response, error) {
 	// JST タイムゾーン
 	jst := time.FixedZone("JST", 9*60*60)
 	now := time.Now().In(jst)
@@ -115,11 +134,11 @@ func handler(ctx context.Context, _ json.RawMessage) (Response, error) {
 
 	// ── S3 に保存 ───────────────────────────────────────────
 	contentType := "application/json"
-	err = retrier.Do(ctx, "PutObject", func(c context.Context) error {
+	err = r.Do(ctx, "PutObject", func(c context.Context) error {
 		// bytes.Reader は初回の送信で読み切られるため、
 		// リトライのたびにクロージャの内側で作り直す。
 		// 外で1つだけ作ると2回目以降が空ボディになる。
-		_, putErr := s3Client.PutObject(c, &s3.PutObjectInput{
+		_, putErr := client.PutObject(c, &s3.PutObjectInput{
 			Bucket:      aws.String(bucketName),
 			Key:         aws.String(reportKey),
 			Body:        bytes.NewReader(body),
@@ -142,6 +161,13 @@ func handler(ctx context.Context, _ json.RawMessage) (Response, error) {
 		ReportKey:   reportKey,
 		GeneratedAt: timestampStr,
 	}, nil
+}
+
+// handler は Lambda のエントリポイント。パッケージ変数を runHandler へ渡すだけ。
+//
+// EventBridge スケジュールの任意のペイロードを受け付けるため json.RawMessage で受ける。
+func handler(ctx context.Context, _ json.RawMessage) (Response, error) {
+	return runHandler(ctx, s3Client, retrier, logger)
 }
 
 func main() {
