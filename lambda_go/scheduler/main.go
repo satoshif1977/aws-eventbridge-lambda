@@ -13,7 +13,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"time"
 
@@ -21,6 +21,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/satoshif1977/aws-eventbridge-lambda/internal/awslog"
 	"github.com/satoshif1977/aws-eventbridge-lambda/internal/awsretry"
 )
 
@@ -45,16 +46,41 @@ type Response struct {
 
 // ── AWS クライアント（init で初期化・コールドスタート時のみ実行）──
 
-var s3Client *s3.Client
+// S3Putter は S3 への書き込みを抽象化する。
+// テストからモックを注入して、ログ出力まで検証できるようにする。
+type S3Putter interface {
+	PutObject(
+		ctx context.Context,
+		params *s3.PutObjectInput,
+		optFns ...func(*s3.Options),
+	) (*s3.PutObjectOutput, error)
+}
+
+var s3Client S3Putter
+
+// 構造化ロガー。LOG_LEVEL で出力レベルを制御する。
+// awslog を通すことで、キー名に応じた機密値のマスキングが効く。
+var logger = awslog.NewFromEnv(awslog.Options{})
 
 // リトライ実行器。スロットリングと一時的なサーバエラーに備える。
 // テストからは Sleep / Rand を差し替えて実待機ゼロで検証する。
-var retrier = awsretry.NewRetrier()
+//
+// OnRetry に awslog.RetryHook を挿すことで、リトライの発生が
+// warn の 1 行 JSON として残り、Logs Insights で件数を追える。
+var retrier = newRetrier(logger)
+
+// newRetrier はロガーと結線済みの Retrier を返す。
+func newRetrier(l *slog.Logger) awsretry.Retrier {
+	r := awsretry.NewRetrier()
+	r.OnRetry = awslog.RetryHook(l, "S3")
+	return r
+}
 
 func init() {
 	cfg, err := config.LoadDefaultConfig(context.Background())
 	if err != nil {
-		log.Fatalf("AWS config 読み込み失敗: %v", err)
+		logger.Error("AWS config の読み込みに失敗しました", "error", err.Error())
+		os.Exit(1)
 	}
 	s3Client = s3.NewFromConfig(cfg)
 }
@@ -71,13 +97,22 @@ func generateReportKey(t time.Time) string {
 
 // handler は EventBridge スケジュールイベントを受け取り、日次レポートを S3 に保存する。
 // Go の json.RawMessage を使い、EventBridge スケジュールの任意のペイロードを受け付ける。
-func handler(ctx context.Context, _ json.RawMessage) (Response, error) {
+// runHandler は日次レポートを生成して S3 に保存する。
+//
+// AWS クライアント・リトライ実行器・ロガーを引数で受け取ることで、
+// handler から依存の生成を切り離し、出力まで検証できるようにしている。
+func runHandler(
+	ctx context.Context,
+	client S3Putter,
+	r awsretry.Retrier,
+	logger *slog.Logger,
+) (Response, error) {
 	// JST タイムゾーン
 	jst := time.FixedZone("JST", 9*60*60)
 	now := time.Now().In(jst)
 	timestampStr := now.Format("2006-01-02T15:04:05+09:00")
 
-	log.Printf("スケジュール実行開始: %s", timestampStr)
+	logger.Info("スケジュール実行を開始しました", "timestamp", timestampStr)
 
 	bucketName := os.Getenv("REPORT_BUCKET_NAME")
 	functionName := os.Getenv("AWS_LAMBDA_FUNCTION_NAME")
@@ -99,11 +134,11 @@ func handler(ctx context.Context, _ json.RawMessage) (Response, error) {
 
 	// ── S3 に保存 ───────────────────────────────────────────
 	contentType := "application/json"
-	err = retrier.Do(ctx, "PutObject", func(c context.Context) error {
+	err = r.Do(ctx, "PutObject", func(c context.Context) error {
 		// bytes.Reader は初回の送信で読み切られるため、
 		// リトライのたびにクロージャの内側で作り直す。
 		// 外で1つだけ作ると2回目以降が空ボディになる。
-		_, putErr := s3Client.PutObject(c, &s3.PutObjectInput{
+		_, putErr := client.PutObject(c, &s3.PutObjectInput{
 			Bucket:      aws.String(bucketName),
 			Key:         aws.String(reportKey),
 			Body:        bytes.NewReader(body),
@@ -112,10 +147,13 @@ func handler(ctx context.Context, _ json.RawMessage) (Response, error) {
 		return putErr
 	})
 	if err != nil {
+		logger.Error("S3 への書き込みに失敗しました",
+			"bucket", bucketName, "key", reportKey, "error", err.Error())
 		return Response{}, fmt.Errorf("S3 書き込み失敗: %w", err)
 	}
 
-	log.Printf("レポートを S3 に保存しました: s3://%s/%s", bucketName, reportKey)
+	logger.Info("レポートを S3 へ保存しました",
+		"bucket", bucketName, "key", reportKey, "sizeBytes", len(body))
 
 	return Response{
 		StatusCode:  200,
@@ -123,6 +161,13 @@ func handler(ctx context.Context, _ json.RawMessage) (Response, error) {
 		ReportKey:   reportKey,
 		GeneratedAt: timestampStr,
 	}, nil
+}
+
+// handler は Lambda のエントリポイント。パッケージ変数を runHandler へ渡すだけ。
+//
+// EventBridge スケジュールの任意のペイロードを受け付けるため json.RawMessage で受ける。
+func handler(ctx context.Context, _ json.RawMessage) (Response, error) {
+	return runHandler(ctx, s3Client, retrier, logger)
 }
 
 func main() {
