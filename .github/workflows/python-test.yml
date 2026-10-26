@@ -2,12 +2,12 @@ name: Python Test
 
 on:
   push:
-    branches: [main]
+    branches: [master]
     paths:
       - 'lambda_src/**'
       - '.github/workflows/python-test.yml'
   pull_request:
-    branches: [main]
+    branches: [master]
     paths:
       - 'lambda_src/**'
       - '.github/workflows/python-test.yml'
