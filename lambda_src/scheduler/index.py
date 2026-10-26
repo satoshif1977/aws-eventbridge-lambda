@@ -10,6 +10,8 @@ from datetime import datetime, timezone, timedelta
 
 import boto3
 
+from retry import retry_call
+
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
@@ -49,7 +51,11 @@ def lambda_handler(event: dict, context) -> dict:
     bucket_name = os.environ["REPORT_BUCKET_NAME"]
     report_key = f"reports/{date_str}/daily-report.json"
 
-    s3.put_object(
+    # S3 のスロットリング（SlowDown）や一時的な InternalError は
+    # 時間をおけば成功しうるため、指数バックオフ + フルジッターで再試行する。
+    # Body は str なので、リトライで読み直されても内容は変わらない。
+    retry_call(
+        s3.put_object,
         Bucket=bucket_name,
         Key=report_key,
         Body=json.dumps(report, ensure_ascii=False, indent=2),
