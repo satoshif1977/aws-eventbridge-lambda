@@ -10,6 +10,8 @@ from datetime import datetime, timezone, timedelta
 
 import boto3
 
+from retry import retry_call
+
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
@@ -58,7 +60,9 @@ def lambda_handler(event: dict, context) -> dict:
         "lambda_request_id": context.aws_request_id,
     }
 
-    table.put_item(Item=item)
+    # スロットリング（ProvisionedThroughputExceededException 等）は
+    # 時間をおけば成功しうるため、指数バックオフ + フルジッターで再試行する
+    retry_call(table.put_item, Item=item)
     processed_count += 1
 
     logger.info("DynamoDB に記録しました: pk=%s", item["pk"])
