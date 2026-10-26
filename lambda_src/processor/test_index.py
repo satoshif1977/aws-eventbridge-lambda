@@ -7,8 +7,10 @@ DynamoDB put_item をモックし、AWS 接続なしでイベント処理ロジ�
 from unittest.mock import MagicMock, patch
 
 import pytest
+from botocore.exceptions import ClientError
 
 from index import lambda_handler
+from retry import RetryConfig
 
 
 def make_context(request_id="test-request-id"):
@@ -117,3 +119,88 @@ class TestProcessorLambda:
 
         with pytest.raises(Exception, match="DynamoDB connection error"):
             lambda_handler(make_s3_event(), make_context())
+
+
+class TestDynamoDBリトライの結線:
+    """put_item がリトライ経由で呼ばれていることを確認する。
+
+    リトライを外す（index.py を table.put_item(Item=item) に戻す）と、
+    このクラスのテストは落ちる。
+    """
+
+    @staticmethod
+    def _throttling_error():
+        return ClientError(
+            {
+                "Error": {
+                    "Code": "ProvisionedThroughputExceededException",
+                    "Message": "スループットの上限を超えました",
+                },
+                "ResponseMetadata": {"HTTPStatusCode": 400},
+            },
+            "PutItem",
+        )
+
+    @patch("index.retry_call")
+    @patch("index.dynamodb")
+    @patch.dict("os.environ", {"DYNAMODB_TABLE_NAME": "test-table"})
+    def test_put_itemはretry_call経由で呼ばれる(self, mock_dynamodb, mock_retry_call):
+        mock_table = MagicMock()
+        mock_dynamodb.Table.return_value = mock_table
+
+        result = lambda_handler(make_s3_event(key="retry.txt"), make_context())
+
+        assert result["statusCode"] == 200
+        mock_retry_call.assert_called_once()
+        # 第1引数が table.put_item、キーワード引数に Item が渡っている
+        args, kwargs = mock_retry_call.call_args
+        assert args[0] == mock_table.put_item
+        assert kwargs["Item"]["object_key"] == "retry.txt"
+        # retry_call に委譲しているので、put_item を直接呼んでいない
+        mock_table.put_item.assert_not_called()
+
+    @patch("index.retry_call")
+    @patch("index.dynamodb")
+    @patch.dict("os.environ", {"DYNAMODB_TABLE_NAME": "test-table"})
+    def test_スロットリングが再試行されて最終的に成功する(
+        self, mock_dynamodb, mock_retry_call
+    ):
+        mock_table = MagicMock()
+        mock_table.put_item.side_effect = [self._throttling_error(), None]
+        mock_dynamodb.Table.return_value = mock_table
+
+        # 実待機ゼロで本物のリトライを通す
+        from retry import retry_call as real_retry_call
+
+        mock_retry_call.side_effect = lambda func, **kwargs: real_retry_call(
+            func,
+            config=RetryConfig(base_delay=0.01, max_delay=0.02, jitter=False),
+            sleep=lambda _: None,
+            **kwargs,
+        )
+
+        result = lambda_handler(make_s3_event(), make_context())
+
+        assert result["statusCode"] == 200
+        assert result["processed_count"] == 1
+        assert mock_table.put_item.call_count == 2
+
+    @patch("index.dynamodb")
+    @patch.dict("os.environ", {"DYNAMODB_TABLE_NAME": "test-table"})
+    def test_リトライ不能なエラーは再試行せず伝播する(self, mock_dynamodb):
+        denied = ClientError(
+            {
+                "Error": {"Code": "AccessDeniedException", "Message": "権限がありません"},
+                "ResponseMetadata": {"HTTPStatusCode": 403},
+            },
+            "PutItem",
+        )
+        mock_table = MagicMock()
+        mock_table.put_item.side_effect = denied
+        mock_dynamodb.Table.return_value = mock_table
+
+        with pytest.raises(ClientError):
+            lambda_handler(make_s3_event(), make_context())
+
+        # リトライ対象外なので 1 回で諦める
+        assert mock_table.put_item.call_count == 1
