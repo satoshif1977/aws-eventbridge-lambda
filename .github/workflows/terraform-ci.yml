@@ -57,13 +57,13 @@ jobs:
         run: pip install pytest boto3 botocore pytest-cov
 
       - name: pytest scheduler
-        run: pytest lambda_src/scheduler/test_index.py -v --cov=lambda_src/scheduler --cov-report=xml:coverage-scheduler.xml
+        run: pytest lambda_src/scheduler/ -v --tb=short --cov=lambda_src/scheduler --cov-report=xml:coverage-scheduler.xml
 
       - name: pytest processor
-        run: pytest lambda_src/processor/test_index.py -v --cov=lambda_src/processor --cov-report=xml:coverage-processor.xml --cov-append
+        run: pytest lambda_src/processor/ -v --tb=short --cov=lambda_src/processor --cov-report=xml:coverage-processor.xml --cov-append
 
       - name: pytest enricher
-        run: pytest lambda_src/enricher/test_index.py -v --cov=lambda_src/enricher --cov-report=xml:coverage-enricher.xml --cov-append
+        run: pytest lambda_src/enricher/ -v --tb=short --cov=lambda_src/enricher --cov-report=xml:coverage-enricher.xml --cov-append
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v7
