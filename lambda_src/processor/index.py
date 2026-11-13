@@ -3,17 +3,16 @@ Pattern B: S3 イベント駆動 Lambda
 S3 にファイルがアップロードされると EventBridge 経由で起動し、
 ファイル情報を DynamoDB に記録する。
 """
-import json
-import logging
+
 import os
 from datetime import datetime, timezone, timedelta
 
 import boto3
 
+from logger import create_logger_from_env, retry_logger
 from retry import retry_call
 
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+logger = create_logger_from_env(base={"service": "eventbridge-processor"})
 
 dynamodb = boto3.resource("dynamodb")
 
@@ -30,8 +29,10 @@ def lambda_handler(event: dict, context) -> dict:
     Returns:
         処理件数（processed_count）
     """
-    logger.info("S3 イベント処理開始")
-    logger.info("受信イベント: %s", json.dumps(event))
+    # request_id を全ログに載せるため、ハンドラ内で child ロガーを作る
+    log = logger.child(request_id=getattr(context, "aws_request_id", None))
+
+    log.info("S3 イベント処理開始", event=event)
 
     table = dynamodb.Table(os.environ["DYNAMODB_TABLE_NAME"])
     now = datetime.now(JST)
@@ -44,10 +45,19 @@ def lambda_handler(event: dict, context) -> dict:
     object_size = detail.get("object", {}).get("size", 0)
 
     if not bucket_name or not object_key:
-        logger.warning("バケット名またはオブジェクトキーが取得できませんでした")
+        log.warn(
+            "バケット名またはオブジェクトキーが取得できませんでした",
+            bucket_name=bucket_name,
+            object_key=object_key,
+        )
         return {"statusCode": 400, "message": "Invalid event structure"}
 
-    logger.info("処理対象: s3://%s/%s (%d bytes)", bucket_name, object_key, object_size)
+    log.info(
+        "処理対象を特定しました",
+        bucket_name=bucket_name,
+        object_key=object_key,
+        object_size=object_size,
+    )
 
     # ── DynamoDB に記録 ─────────────────────────────────────
     item = {
@@ -61,11 +71,16 @@ def lambda_handler(event: dict, context) -> dict:
     }
 
     # スロットリング（ProvisionedThroughputExceededException 等）は
-    # 時間をおけば成功しうるため、指数バックオフ + フルジッターで再試行する
-    retry_call(table.put_item, Item=item)
+    # 時間をおけば成功しうるため、指数バックオフ + フルジッターで再試行する。
+    # リトライが起きたこと自体は warn で構造化して残し、頻度を Logs Insights で追う。
+    retry_call(
+        table.put_item,
+        Item=item,
+        on_retry=retry_logger(log, "dynamodb.put_item"),
+    )
     processed_count += 1
 
-    logger.info("DynamoDB に記録しました: pk=%s", item["pk"])
+    log.info("DynamoDB に記録しました", pk=item["pk"], processed_count=processed_count)
 
     return {
         "statusCode": 200,
