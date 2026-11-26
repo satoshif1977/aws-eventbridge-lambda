@@ -5,6 +5,7 @@
 
 import { detectFileType, detectPriority, nowJST, handler, createHandler } from './index';
 import { createLogger, REDACTED, type LogLevel } from './logger';
+import { createNoopMetrics } from './metrics';
 
 // ── detectFileType ────────────────────────────────────────────────
 
@@ -306,6 +307,16 @@ describe('nowJST / Date モック', () => {
 const parseLogged = (spy: jest.SpyInstance): Record<string, unknown>[] =>
   spy.mock.calls.map((call) => JSON.parse(String(call[0])) as Record<string, unknown>);
 
+// handler は logger の 1 行と metrics の EMF 1 行を同じ console.log に出す。
+// EMF 文書はルートに "_aws" を持つので、それで振り分ける。
+const isEmf = (entry: Record<string, unknown>): boolean => '_aws' in entry;
+/** ログ行だけを取り出す */
+const parseLogs = (spy: jest.SpyInstance): Record<string, unknown>[] =>
+  parseLogged(spy).filter((entry) => !isEmf(entry));
+/** EMF 行だけを取り出す */
+const parseEmf = (spy: jest.SpyInstance): Record<string, unknown>[] =>
+  parseLogged(spy).filter(isEmf);
+
 describe('handler / 構造化ログ出力検証', () => {
   let consoleSpy: jest.SpyInstance;
 
@@ -319,8 +330,10 @@ describe('handler / 構造化ログ出力検証', () => {
 
   it('エンリッチ完了ログが出力される', () => {
     handler({ key: 'data.csv', size: 100 });
-    expect(consoleSpy).toHaveBeenCalledTimes(1);
-    expect(parseLogged(consoleSpy)[0].message).toBe('エンリッチ完了');
+    // ログ 1 行 + EMF 1 行。どちらか一方だけ出る退行を検出したいので両方数える。
+    expect(parseLogs(consoleSpy)).toHaveLength(1);
+    expect(parseEmf(consoleSpy)).toHaveLength(1);
+    expect(parseLogs(consoleSpy)[0].message).toBe('エンリッチ完了');
   });
 
   it('ログに key が含まれる', () => {
@@ -464,7 +477,9 @@ describe('logger.ts との結線', () => {
     const { logger, lines } = captureLogger();
     const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
 
-    createHandler(logger)({ key: 'data.csv', size: 100 });
+    // メトリクスも差し替える。既定の metrics は EMF を console へ出すため、
+    // 差し替えないと「ロガーが console を使っていない」ことを確かめられない。
+    createHandler(logger, createNoopMetrics())({ key: 'data.csv', size: 100 });
 
     expect(lines).toHaveLength(1);
     // 差し替えたロガーを使うので console には出ない
