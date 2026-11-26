@@ -11,6 +11,10 @@
  *
  * ログは同梱の logger.ts（構造化・機密情報マスキング付き）を通す。
  * console.log の文字列連結では Logs Insights から項目を取り出せないため。
+ *
+ * メトリクスは同梱の metrics.ts（CloudWatch EMF）に出す。
+ * Pipes の途中に挟まる関数のため、呼び出し元のメトリクスには「Pipes の失敗」
+ * としか出ない。処理件数・所要時間・ファイルタイプを自前で出しておく。
  */
 
 // ── 型・ヘルパーを re-export（テストファイルが "./index" から import しているため）──
@@ -21,21 +25,25 @@ export { detectFileType, detectPriority, nowJST } from './helpers';
 
 import { detectFileType, detectPriority, nowJST } from './helpers';
 import { createLoggerFromEnv, type Logger } from './logger';
+import { createMetricsFromEnv, type Metrics } from './metrics';
 
 // ── Lambda ハンドラー ─────────────────────────────────────────────
 
 /**
- * ロガーを差し替えられる形でハンドラーを組み立てる。
+ * ロガー・メトリクスを差し替えられる形でハンドラーを組み立てる。
  *
  * Lambda は handler(event, context, callback) の順で引数を渡すため、
  * ロガーを第2引数にすると context を受け取ってしまう。
  * ファクトリにして渡す形なら、テストからだけ安全に差し替えられる。
  *
- * @param logger 省略時は LOG_LEVEL から組み立てる
+ * @param logger  省略時は LOG_LEVEL から組み立てる
+ * @param metrics 省略時は METRICS_NAMESPACE / STAGE から組み立てる
  */
 export const createHandler =
-  (logger: Logger = createLoggerFromEnv()) =>
+  (logger: Logger = createLoggerFromEnv(), metrics: Metrics = createMetricsFromEnv()) =>
   (event: EnricherInput | EnricherInput[]): EnricherOutput => {
+    const stopTimer = metrics.timer('EnrichLatency');
+
     // Pipes の input_template "<$.body>" により body が直接渡される
     const body: EnricherInput = Array.isArray(event)
       ? (event[0] ?? {})
@@ -57,6 +65,26 @@ export const createHandler =
       file_type: enriched.file_type,
       priority: enriched.priority,
     });
+
+    metrics.count('EnrichSuccess');
+    // key は S3 のオブジェクトキーで値の種類が際限なく増える。
+    // ディメンションにすると課金対象のカスタムメトリクスが増え続けるため
+    // プロパティとして載せる。file_type / priority は取りうる値が限られるので
+    // ディメンションにしてよいが、ここでは Pipes 単位の集計で足りるため揃える。
+    metrics.setProperty('key', key);
+    metrics.setProperty('fileType', enriched.file_type);
+    metrics.setProperty('priority', enriched.priority);
+    // size は入力が文字列や欠損のこともあり NaN になりうる。
+    // metrics.ts は NaN を例外にするため、入口で弾いておく。
+    if (Number.isFinite(size)) {
+      metrics.putMetric('PayloadSize', size, { unit: 'Bytes' });
+    } else {
+      metrics.count('InvalidPayloadSize');
+    }
+    if (key === '') metrics.count('MissingKey');
+
+    stopTimer();
+    metrics.flush();
 
     return enriched;
   };
